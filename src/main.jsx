@@ -43,6 +43,21 @@ document.addEventListener('focusout', (e) => {
   }, 120);
 });
 
+// Nowa wersja aplikacji (service worker) → automatyczne przeładowanie, żeby nikt nie siedział na starej wersji.
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    window.location.reload();
+  });
+  // sprawdzaj aktualizacje co 30 min i po powrocie do aplikacji
+  const check = () => navigator.serviceWorker.getRegistration().then((r) => r?.update()).catch(() => {});
+  setInterval(check, 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && check());
+}
+
 // Próba zablokowania orientacji (działa w zainstalowanej aplikacji PWA na Androidzie).
 try {
   screen.orientation?.lock?.('portrait').catch(() => {});
