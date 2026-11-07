@@ -6,7 +6,7 @@ import {
 import { api, isDemo } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, CustomRoleBadges, Empty, Modal, RoleBadge, Spinner, hexA, useConfirm, useToast } from '../components/ui';
-import { ROLE_LABELS, ROLE_ORDER, activeAssignments } from '../lib/perms';
+import { ROLE_LABELS, ROLE_ORDER, activeAssignments, isActiveRole } from '../lib/perms';
 import { fmtDate, fmtDateTime, normalize, relTime } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
 import { requestSync } from './MeetingDetail';
@@ -138,8 +138,11 @@ function MembersTab({ people, roles, reload, perms }) {
   );
 
   const roleOptions = (p) => {
-    const all = ['member', 'board', 'chair', 'alumni', 'rejected'];
-    if (perms.chair) return all;
+    const all = ['member', 'board', 'chair', 'admin', 'alumni', 'rejected'];
+    if (perms.admin) return all;
+    // tylko administrator nadaje/odbiera rolę administratora
+    if (p.role === 'admin') return ['admin'];
+    if (perms.chair) return all.filter((r) => r !== 'admin');
     // zarząd nie może ruszać ról zarządu/przewodniczącego
     if (['board', 'chair'].includes(p.role)) return [p.role];
     return ['member', 'alumni', 'rejected'];
@@ -147,7 +150,8 @@ function MembersTab({ people, roles, reload, perms }) {
 
   const changeRole = async (p, role) => {
     if (role === p.role) return;
-    if (role === 'chair' && !(await confirm(`Nadać ${p.full_name} uprawnienia przewodniczącego (pełny administrator)?`))) return;
+    if (role === 'chair' && !(await confirm(`Nadać ${p.full_name} rolę przewodniczącego (pełne uprawnienia w komisji)?`))) return;
+    if (role === 'admin' && !(await confirm(`Nadać ${p.full_name} rolę administratora (pełny dostęp techniczny do aplikacji)?`))) return;
     try {
       await api.setRole(p.id, role);
       toast.success(`Zmieniono rolę: ${ROLE_LABELS[role]}`);
@@ -227,7 +231,7 @@ function MembersTab({ people, roles, reload, perms }) {
                   </div>
                 </td>
                 <td className="nowrap" style={{ textAlign: 'right' }}>
-                  {['member', 'board', 'chair'].includes(p.role) && roles.length > 0 && (
+                  {isActiveRole(p.role) && roles.length > 0 && (
                     <button className="btn btn-ghost btn-sm" onClick={() => setGrantFor(p)}>
                       <Plus size={15} /> Rola
                     </button>
@@ -479,7 +483,7 @@ function SettingsTab({ canEdit }) {
     <form className="stack" style={{ gap: 18 }} onSubmit={save}>
       {!canEdit && (
         <div className="alert">
-          <Info size={18} /> Ustawienia może zmieniać tylko przewodniczący.
+          <Info size={18} /> Ustawienia może zmieniać tylko przewodniczący lub administrator.
         </div>
       )}
       <div className="card card-pad stack">
@@ -557,7 +561,7 @@ function SettingsTab({ canEdit }) {
 // ---------------------------------------------------------------------
 function ExportTab({ people }) {
   const toast = useToast();
-  const members = people.filter((p) => ['member', 'board', 'chair'].includes(p.role));
+  const members = people.filter((p) => isActiveRole(p.role));
 
   const exportMembers = () => {
     const rows = [['Imię i nazwisko', 'E-mail', 'Rola', 'Role tymczasowe', 'Wydział', 'Kierunek', 'Rok', 'Telefon', 'W komisji od']];

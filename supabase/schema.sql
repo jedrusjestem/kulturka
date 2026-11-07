@@ -32,7 +32,7 @@ create table if not exists public.profiles (
   email        text not null,
   full_name    text not null default '',
   role         text not null default 'pending'
-               check (role in ('pending', 'member', 'board', 'chair', 'rejected', 'alumni')),
+               check (role in ('pending', 'member', 'board', 'chair', 'admin', 'rejected', 'alumni')),
   faculty      text not null default '',
   study_field  text not null default '',
   study_year   text not null default '',
@@ -50,6 +50,10 @@ create table if not exists public.profiles (
   updated_at   timestamptz not null default now()
 );
 create index if not exists profiles_role_idx on public.profiles (role);
+-- aktualizacja istniejącej bazy: dodanie roli 'admin' (administrator techniczny, osobno od przewodniczącego)
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add constraint profiles_role_check
+  check (role in ('pending', 'member', 'board', 'chair', 'admin', 'rejected', 'alumni'));
 
 -- Sekret do rotującego kodu QR obecności (widoczny tylko dla właściciela)
 create table if not exists public.qr_secrets (
@@ -151,17 +155,24 @@ $$;
 
 create or replace function public.is_active_member() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce(public.my_role() in ('member', 'board', 'chair'), false)
+  select coalesce(public.my_role() in ('member', 'board', 'chair', 'admin'), false)
 $$;
 
 create or replace function public.is_board() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce(public.my_role() in ('board', 'chair'), false)
+  select coalesce(public.my_role() in ('board', 'chair', 'admin'), false)
 $$;
 
+-- uprawnienia na poziomie przewodniczącego (ma je też administrator)
 create or replace function public.is_chair() returns boolean
 language sql stable security definer set search_path = public as $$
-  select coalesce(public.my_role() = 'chair', false)
+  select coalesce(public.my_role() in ('chair', 'admin'), false)
+$$;
+
+-- administrator techniczny aplikacji
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce(public.my_role() = 'admin', false)
 $$;
 
 -- p: 'post_important' | 'scan' | 'manage_meetings'
@@ -203,9 +214,9 @@ begin
     raise exception 'Rejestracja możliwa tylko z adresem @%', v_domain;
   end if;
 
-  -- Pierwsza osoba w systemie zostaje przewodniczącym (bootstrap).
-  if not exists (select 1 from public.profiles where role = 'chair') then
-    v_role := 'chair';
+  -- Pierwsza osoba w systemie zostaje administratorem (bootstrap).
+  if not exists (select 1 from public.profiles where role in ('admin', 'chair')) then
+    v_role := 'admin';
   end if;
 
   insert into public.profiles (id, email, full_name, role, consent_at, approved_at)
@@ -215,7 +226,7 @@ begin
     coalesce(nullif(trim(new.raw_user_meta_data ->> 'full_name'), ''), split_part(new.email, '@', 1)),
     v_role,
     case when (new.raw_user_meta_data ->> 'consent') = 'true' then now() end,
-    case when v_role = 'chair' then now() end
+    case when v_role = 'admin' then now() end
   );
   insert into public.qr_secrets (user_id) values (new.id);
   return new;
@@ -245,13 +256,20 @@ begin
     if not public.is_board() then
       raise exception 'Brak uprawnień do zmiany roli';
     end if;
-    if (old.role in ('board', 'chair') or new.role in ('board', 'chair')) and not public.is_chair() then
-      raise exception 'Tylko przewodniczący może nadawać lub odbierać role zarządu i przewodniczącego';
+    if (old.role = 'admin' or new.role = 'admin') and not public.is_admin() then
+      raise exception 'Tylko administrator może nadawać lub odbierać rolę administratora';
     end if;
-    if old.role = 'chair' and (select count(*) from public.profiles where role = 'chair') <= 1 then
+    if (old.role in ('board', 'chair') or new.role in ('board', 'chair')) and not public.is_chair() then
+      raise exception 'Tylko przewodniczący lub administrator może nadawać lub odbierać role zarządu i przewodniczącego';
+    end if;
+    if old.role = 'admin' and (select count(*) from public.profiles where role = 'admin') <= 1 then
+      raise exception 'Musi zostać co najmniej jeden administrator – najpierw nadaj tę rolę komuś innemu';
+    end if;
+    if old.role = 'chair' and (select count(*) from public.profiles where role = 'chair') <= 1
+       and not exists (select 1 from public.profiles where role = 'admin') then
       raise exception 'Musi zostać co najmniej jeden przewodniczący – najpierw nadaj tę rolę komuś innemu';
     end if;
-    if old.role = 'pending' and new.role in ('member', 'board', 'chair') then
+    if old.role = 'pending' and new.role in ('member', 'board', 'chair', 'admin') then
       new.approved_by := auth.uid();
       new.approved_at := now();
     end if;
@@ -401,7 +419,7 @@ begin
   end if;
 
   select * into v_prof from public.profiles where id = v_user;
-  if v_prof.role not in ('member', 'board', 'chair') then
+  if v_prof.role not in ('member', 'board', 'chair', 'admin') then
     return jsonb_build_object('ok', false, 'error', 'Ta osoba nie jest aktywnym członkiem');
   end if;
   if not exists (select 1 from public.meetings where id = p_meeting) then
@@ -431,7 +449,11 @@ $$;
 create or replace function public.delete_my_account() returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if public.is_chair() and (select count(*) from public.profiles where role = 'chair') <= 1 then
+  if public.is_admin() and (select count(*) from public.profiles where role = 'admin') <= 1 then
+    raise exception 'Jesteś jedynym administratorem – najpierw nadaj tę rolę komuś innemu';
+  end if;
+  if public.my_role() = 'chair' and (select count(*) from public.profiles where role = 'chair') <= 1
+     and not exists (select 1 from public.profiles where role = 'admin') then
     raise exception 'Jesteś jedynym przewodniczącym – najpierw przekaż tę rolę';
   end if;
   delete from auth.users where id = auth.uid();
@@ -474,7 +496,7 @@ create policy settings_update on public.app_settings for update to authenticated
 create policy profiles_read on public.profiles for select to authenticated using (
   id = auth.uid()
   or public.is_board()
-  or (public.is_active_member() and role in ('member', 'board', 'chair', 'alumni'))
+  or (public.is_active_member() and role in ('member', 'board', 'chair', 'admin', 'alumni'))
 );
 create policy profiles_update on public.profiles for update to authenticated
   using (id = auth.uid() or public.is_board())

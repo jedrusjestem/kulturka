@@ -536,6 +536,10 @@ textarea {
   background: linear-gradient(90deg, #1a76a9, #2394d0);
   color: #fff;
 }
+.badge-admin {
+  background: var(--navy-900);
+  color: #fff;
+}
 .badge-board {
   background: var(--sky-100);
   color: var(--sky-700);

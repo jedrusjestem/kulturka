@@ -170,7 +170,7 @@ function writeAttendanceSheet(m, folder, people, att) {
 
   const attMap = {};
   att.forEach((a) => (attMap[a.user_id] = a));
-  const active = people.filter((p) => ['member', 'board', 'chair'].indexOf(p.role) >= 0);
+  const active = people.filter((p) => ['member', 'board', 'chair', 'admin'].indexOf(p.role) >= 0);
   // osoby, które mają wpis obecności, ale nie są już aktywne – też pokazujemy
   const extra = people.filter((p) => attMap[p.id] && active.indexOf(p) < 0);
   const list = active.concat(extra);
@@ -235,7 +235,7 @@ function writeSummary(folder, people) {
   const att = sb('GET', 'attendance?select=meeting_id,user_id,present') || [];
   const map = {};
   att.forEach((a) => (map[a.meeting_id + '|' + a.user_id] = a.present));
-  const active = people.filter((p) => ['member', 'board', 'chair'].indexOf(p.role) >= 0);
+  const active = people.filter((p) => ['member', 'board', 'chair', 'admin'].indexOf(p.role) >= 0);
 
   const header = ['Imię i nazwisko'].concat(meetings.map((m) => Utilities.formatDate(new Date(m.starts_at), TZ, 'dd.MM') + ' ' + m.title), ['Obecności', 'Frekwencja']);
   const rows = active.map((p) => {

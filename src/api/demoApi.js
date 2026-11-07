@@ -79,6 +79,7 @@ function seed() {
       study_field: 'Automatyka i Robotyka',
       study_year: '3 rok',
     }),
+    p('Admin Kulturki', 'admin.kulturka@student.pwr.edu.pl', 'admin', { bio: 'Administrator techniczny aplikacji.' }),
     p('Tomasz Zieliński', 'tomasz.zielinski@student.pwr.edu.pl', 'pending', { study_year: '1 rok' }),
     p('Natalia Szymańska', 'natalia.szymanska@student.pwr.edu.pl', 'pending', { study_year: '2 rok' }),
   ];
@@ -232,9 +233,11 @@ function sessionUserId() {
 function me() {
   return db.users.find((u) => u.id === sessionUserId()) || null;
 }
-const isActive = (u) => u && ['member', 'board', 'chair'].includes(u.role);
-const isBoard = (u) => u && ['board', 'chair'].includes(u.role);
-const isChair = (u) => u && u.role === 'chair';
+const isActive = (u) => u && ['member', 'board', 'chair', 'admin'].includes(u.role);
+const isBoard = (u) => u && ['board', 'chair', 'admin'].includes(u.role);
+const isChair = (u) => u && ['chair', 'admin'].includes(u.role);
+const isAdmin = (u) => u && u.role === 'admin';
+const count = (role) => db.users.filter((x) => x.role === role).length;
 function hasPerm(u, p) {
   if (isBoard(u)) return true;
   if (!isActive(u)) return false;
@@ -284,6 +287,7 @@ export function createDemoApi() {
     demoPersonas() {
       const pick = (role) => db.users.find((u) => u.role === role);
       return [
+        ['Administrator', pick('admin')],
         ['Przewodniczący', pick('chair')],
         ['Zarząd', pick('board')],
         ['Członek', db.users.find((u) => u.role === 'member' && db.assignments.some((a) => a.user_id === u.id)) || pick('member')],
@@ -308,12 +312,12 @@ export function createDemoApi() {
       if (password.length < 8) throw new Error('Hasło musi mieć co najmniej 8 znaków');
       if (db.users.some((u) => u.email.toLowerCase() === email.toLowerCase()))
         throw new Error('Konto z tym adresem już istnieje');
-      const noChair = !db.users.some((u) => u.role === 'chair');
+      const noChair = !db.users.some((u) => ['admin', 'chair'].includes(u.role));
       const u = {
         id: uuid(),
         email,
         full_name: fullName || email.split('@')[0],
-        role: noChair ? 'chair' : 'pending',
+        role: noChair ? 'admin' : 'pending',
         faculty: '',
         study_field: '',
         study_year: '',
@@ -393,7 +397,8 @@ export function createDemoApi() {
     },
     async deleteMyAccount() {
       const u = me();
-      if (isChair(u) && db.users.filter((x) => x.role === 'chair').length <= 1)
+      if (isAdmin(u) && count('admin') <= 1) throw new Error('Jesteś jedynym administratorem – najpierw nadaj tę rolę komuś innemu');
+      if (u.role === 'chair' && count('chair') <= 1 && !count('admin'))
         throw new Error('Jesteś jedynym przewodniczącym – najpierw przekaż tę rolę');
       db.users = db.users.filter((x) => x.id !== u.id);
       db.attendance = db.attendance.filter((a) => a.user_id !== u.id);
@@ -408,7 +413,7 @@ export function createDemoApi() {
       await delay(60);
       const u = me();
       return db.users
-        .filter((x) => x.id === u.id || isBoard(u) || (isActive(u) && ['member', 'board', 'chair', 'alumni'].includes(x.role)))
+        .filter((x) => x.id === u.id || isBoard(u) || (isActive(u) && ['member', 'board', 'chair', 'admin', 'alumni'].includes(x.role)))
         .map(withAssignments)
         .sort((a, b) => a.full_name.localeCompare(b.full_name, 'pl'));
     },
@@ -421,12 +426,16 @@ export function createDemoApi() {
       const u = me();
       const t = db.users.find((x) => x.id === id);
       deny(isBoard(u), 'Brak uprawnień do zmiany roli');
+      if ((t.role === 'admin' || role === 'admin') && !isAdmin(u))
+        throw new Error('Tylko administrator może nadawać lub odbierać rolę administratora');
       if ((['board', 'chair'].includes(t.role) || ['board', 'chair'].includes(role)) && !isChair(u))
-        throw new Error('Tylko przewodniczący może nadawać lub odbierać role zarządu i przewodniczącego');
-      if (t.role === 'chair' && role !== 'chair' && db.users.filter((x) => x.role === 'chair').length <= 1)
+        throw new Error('Tylko przewodniczący lub administrator może nadawać lub odbierać role zarządu i przewodniczącego');
+      if (t.role === 'admin' && role !== 'admin' && count('admin') <= 1)
+        throw new Error('Musi zostać co najmniej jeden administrator – najpierw nadaj tę rolę komuś innemu');
+      if (t.role === 'chair' && role !== 'chair' && count('chair') <= 1 && !count('admin'))
         throw new Error('Musi zostać co najmniej jeden przewodniczący – najpierw nadaj tę rolę komuś innemu');
       log('role_change', id, { from: t.role, to: role });
-      if (t.role === 'pending' && ['member', 'board', 'chair'].includes(role)) {
+      if (t.role === 'pending' && ['member', 'board', 'chair', 'admin'].includes(role)) {
         t.approved_by = u.id;
         t.approved_at = now();
       }

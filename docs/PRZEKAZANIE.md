@@ -1,5 +1,11 @@
 # Przekazanie kadencji, RODO i bezpieczeństwo
 
+## Role przewodniczącego i administratora
+
+- **Przewodniczący** – funkcja w komisji: pełne uprawnienia (role, ustawienia, akceptacje). Zmienia się co kadencję.
+- **Administrator** – techniczny opiekun aplikacji: ma wszystko, co przewodniczący, a dodatkowo tylko on nadaje i odbiera rolę administratora. Przewodniczący nie może odebrać roli administratorowi. Musi zawsze zostać co najmniej jeden administrator.
+- Rolę administratora istniejącemu kontu nadasz plikiem `supabase/nadaj-admina.sql` (Supabase → SQL Editor).
+
 ## Co roku przy zmianie zarządu (checklista)
 
 - [ ] Nowy przewodniczący ma konto w aplikacji → stary przewodniczący nadaje mu rolę **Przewodniczący** (Panel zarządu → Członkowie i role), dopiero potem sam zmienia sobie rolę.

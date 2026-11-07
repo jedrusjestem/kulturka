@@ -5,7 +5,7 @@ Aplikacja (strona + PWA na telefon) dla Komisji Kultury i Projektów Samorządu 
 ## Co potrafi
 
 - **Konta członków** – rejestracja → akceptacja przez zarząd. Opcjonalnie tylko adresy `@student.pwr.edu.pl`.
-- **Role**: członek, zarząd (akceptuje członków, ogłoszenia, sprawdza obecność), przewodniczący (pełny administrator) + **role tymczasowe** z datą wygaśnięcia i opcjonalnymi uprawnieniami (publikacja w „Ważne”, skanowanie obecności, zarządzanie spotkaniami).
+- **Role**: członek, zarząd (akceptuje członków, ogłoszenia, sprawdza obecność), przewodniczący (pełne uprawnienia w komisji), administrator (techniczny opiekun aplikacji – jak przewodniczący, a do tego jako jedyny nadaje rolę administratora) + **role tymczasowe** z datą wygaśnięcia i opcjonalnymi uprawnieniami (publikacja w „Ważne”, skanowanie obecności, zarządzanie spotkaniami).
 - **Profile** – edycja własnej strony (zdjęcie, wydział, kierunek, opis, kontakt z ustawieniami prywatności), wyszukiwarka członków, QR „wizytówka” profilu.
 - **Ważne** – ogłoszenia zarządu i (po akceptacji) członków, przypinanie, licznik nieprzeczytanych.
 - **Spotkania** – kalendarz miesięczny i lista, agendy w Google Docs (link lub tworzone automatycznie), listy obecności w Google Sheets, zbiorcza frekwencja.

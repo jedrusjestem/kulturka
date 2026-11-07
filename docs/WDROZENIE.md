@@ -45,7 +45,7 @@ Szacowany czas: ok. 45 minut.
 4. **Actions → Deploy na GitHub Pages → Run workflow** (albo zrób dowolny push). Po ~1 min strona będzie pod `https://LOGIN.github.io/kulturka/`.
 5. Wróć do Supabase (krok 1.5) i upewnij się, że ten adres jest w *Site URL* i *Redirect URLs*.
 
-**Pierwsze konto:** wejdź na stronę → *Zarejestruj się*. **Pierwsza zarejestrowana osoba automatycznie zostaje przewodniczącym** (administratorem). Kolejne osoby czekają na akceptację zarządu.
+**Pierwsze konto:** wejdź na stronę → *Zarejestruj się*. **Pierwsza zarejestrowana osoba automatycznie zostaje administratorem.** Administrator nadaje potem rolę przewodniczącego i zarządu. Kolejne osoby czekają na akceptację zarządu.
 
 > Alternatywa: Cloudflare Pages (też darmowe, działa z prywatnym repo). *Workers & Pages → Create → Pages → Connect to Git*, build command `npm run build`, output `dist`, zmienne środowiskowe jak wyżej.
 
@@ -55,7 +55,7 @@ Instrukcja w [`docs/GOOGLE.md`](GOOGLE.md). W skrócie: skrypt Apps Script na ko
 
 ## Krok 4. Ustawienia w aplikacji
 
-Zaloguj się jako przewodniczący → **Panel zarządu → Google i ustawienia**:
+Zaloguj się jako administrator lub przewodniczący → **Panel zarządu → Google i ustawienia**:
 - **Dozwolona domena e-mail**: `student.pwr.edu.pl` (zalecane – blokuje przypadkowe rejestracje),
 - **Folder Google Drive**: link do folderu komisji,
 - **Adres Apps Script**: URL wdrożenia z `docs/GOOGLE.md`.

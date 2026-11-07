@@ -10,6 +10,7 @@ import { MeetingForm } from './Meetings';
 import { DateChip } from './Home';
 import { fmtDate, fmtTime, fmtWeekday, normalize, relTime } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
+import { isActiveRole } from '../lib/perms';
 
 export async function requestSync() {
   try {
@@ -39,7 +40,7 @@ export default function MeetingDetail() {
       const [meeting, a, p] = await Promise.all([api.getMeeting(id), api.listAttendance(id), perms.scan ? api.listProfiles() : []]);
       setM(meeting);
       setAtt(a);
-      setPeople(p.filter((x) => ['member', 'board', 'chair'].includes(x.role)));
+      setPeople(p.filter((x) => isActiveRole(x.role)));
     } catch (e) {
       toast.error(e);
       setM(null);
