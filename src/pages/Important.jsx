@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import { Megaphone, Plus, Pin, PinOff, Check, X, Trash2, Clock, Info, Pencil } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { Avatar, Empty, Linkify, Modal, Spinner, useConfirm, useToast } from '../components/ui';
+import { Avatar, Empty, Linkify, Spinner, useConfirm, useToast } from '../components/ui';
+import AvailabilityPoll from '../components/AvailabilityPoll';
+import { AnnouncementComposer } from './EventDetail';
 import { fmtDateTime, relTime } from '../lib/format';
 
 export default function Important() {
@@ -109,6 +111,9 @@ export default function Important() {
               <div className="ann-body">
                 <Linkify text={a.body} />
               </div>
+              {a.poll && a.status !== 'rejected' && (
+                <AvailabilityPoll poll={a.poll} me={profile} canManage={perms.board || a.author_id === profile.id} onDeleted={load} />
+              )}
               {(perms.board || a.author_id === profile.id) && (
                 <div className="ann-actions">
                   {perms.board && a.status === 'pending' && (
@@ -149,87 +154,43 @@ export default function Important() {
       )}
 
       {editing && (
-        <Composer
+        <AnnouncementComposer
           initial={editing}
           direct
           onClose={() => setEditing(null)}
-          onDone={() => {
+          onSubmit={async ({ title, body, poll }) => {
+            await api.updateAnnouncement(editing.id, { title, body });
+            if (poll && !editing.poll) await api.createPoll({ announcement_id: editing.id, ...poll });
+            return 'Zapisano zmiany';
+          }}
+          onDone={(msg) => {
             setEditing(null);
-            toast.success('Zapisano zmiany');
+            toast.success(msg);
             load();
           }}
         />
       )}
 
       {composer && (
-        <Composer
+        <AnnouncementComposer
           direct={perms.postImportant}
+          canNotify={perms.postImportant}
+          notifyLabel="Wyślij powiadomienie e-mail do wszystkich członków"
           onClose={() => setComposer(false)}
-          onDone={(status) => {
+          onSubmit={async ({ title, body, notify, poll }) => {
+            const a = await api.createAnnouncement({ title, body, notify });
+            if (poll) await api.createPoll({ announcement_id: a.id, ...poll });
+            if (a.status !== 'published' && !perms.board) setTab('mine');
+            return a.status === 'published' ? 'Opublikowano ogłoszenie' : 'Wysłano do akceptacji zarządu';
+          }}
+          onDone={(msg) => {
             setComposer(false);
-            toast.success(status === 'published' ? 'Opublikowano ogłoszenie' : 'Wysłano do akceptacji zarządu');
-            if (status !== 'published' && !perms.board) setTab('mine');
+            toast.success(msg);
             load();
             refreshCounts();
           }}
         />
       )}
     </>
-  );
-}
-
-function Composer({ direct, onClose, onDone, initial }) {
-  const toast = useToast();
-  const [title, setTitle] = useState(initial?.title || '');
-  const [body, setBody] = useState(initial?.body || '');
-  const [busy, setBusy] = useState(false);
-  const submit = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      if (initial) {
-        await api.updateAnnouncement(initial.id, { title: title.trim(), body: body.trim() });
-        onDone(initial.status);
-        return;
-      }
-      const a = await api.createAnnouncement({ title: title.trim(), body: body.trim() });
-      onDone(a?.status);
-    } catch (err) {
-      toast.error(err);
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal
-      title={initial ? 'Edytuj ogłoszenie' : 'Nowe ogłoszenie'}
-      onClose={onClose}
-      footer={
-        <>
-          <button className="btn btn-ghost" onClick={onClose}>
-            Anuluj
-          </button>
-          <button className="btn btn-primary" form="ann-form" disabled={busy || !title.trim()}>
-            {initial ? 'Zapisz' : direct ? 'Opublikuj' : 'Wyślij do akceptacji'}
-          </button>
-        </>
-      }
-    >
-      <form id="ann-form" className="stack" onSubmit={submit}>
-        {!direct && (
-          <div className="alert">
-            <Info size={18} /> Ogłoszenie pojawi się w „Ważne” po zatwierdzeniu przez zarząd.
-          </div>
-        )}
-        <div className="field">
-          <label>Tytuł</label>
-          <input className="input" maxLength={140} required value={title} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div className="field">
-          <label>Treść</label>
-          <textarea className="textarea" rows={6} maxLength={5000} value={body} onChange={(e) => setBody(e.target.value)}
-            placeholder="Linki zostaną automatycznie podlinkowane." />
-        </div>
-      </form>
-    </Modal>
   );
 }

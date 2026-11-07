@@ -10,7 +10,10 @@ Aplikacja (strona + PWA na telefon) dla Komisji Kultury i Projektów Samorządu 
 - **Ważne** – ogłoszenia zarządu i (po akceptacji) członków, przypinanie, licznik nieprzeczytanych.
 - **Spotkania** – kalendarz miesięczny i lista, agendy w Google Docs (link lub tworzone automatycznie), listy obecności w Google Sheets, zbiorcza frekwencja.
 - **Obecność kodem QR** – każdy ma osobisty, rotujący co 30 s kod; zarząd skanuje telefonem → obecność trafia do bazy i arkusza. Działa offline (kolejka), jest ręczne zaznaczanie i wpisywanie kodu.
-- **Panel zarządu** – zgłoszenia, role, ustawienia Google, eksport CSV (członkowie, frekwencja), dziennik zmian.
+- **Wydarzenia** – własny zespół (koordynator główny = „przewodniczący wydarzenia”, sztab = „zarząd wydarzenia”, kadra = członkowie), rekrutacja z automatycznym dodaniem do „Twoich wydarzeń”, osobne „Ważne”, spotkania z obecnością, lista kontaktów zespołu.
+- **Ankiety dostępności** (w stylu Crab Fit) w ogłoszeniach wydarzeń i w „Ważne”: zaznaczanie przeciąganiem, mapa dostępności grupy, najlepsze terminy, notatki.
+- **Powiadomienia e-mail** (Apps Script): zatwierdzenie konta, przyjęcie do wydarzenia, zgłoszenia dla sztabu, ogłoszenia z opcją „wyślij e-mail”, przypomnienia dzień przed spotkaniem. Cotygodniowa **automatyczna kopia zapasowa** na Dysk.
+- **Panel zarządu** – zgłoszenia, role, ustawienia Google, eksport CSV (członkowie, frekwencja, aktywność), dziennik zmian, zgłoszenia problemów od członków.
 - Wersja na komputer i telefon, instalacja na ekranie głównym, bez przybliżania i w pionie.
 
 ## Struktura

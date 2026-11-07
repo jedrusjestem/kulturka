@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Plus, CalendarDays, MapPin, Clock, FileText, List, CalendarRange } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, CalendarDays, MapPin, Clock, FileText, List, CalendarRange, PartyPopper } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Empty, Modal, Spinner, useToast } from '../components/ui';
@@ -209,6 +209,11 @@ export function MeetingList({ items }) {
                   <FileText size={13} /> Agenda
                 </span>
               )}
+              {m.event_id && (
+                <span className="row" style={{ gap: 4, color: 'var(--navy-600)' }}>
+                  <PartyPopper size={13} /> Wydarzenie
+                </span>
+              )}
             </div>
           </div>
           <ChevronRight size={18} className="muted" />
@@ -241,6 +246,7 @@ export function MeetingForm({ initial = {}, onClose, onSaved }) {
     try {
       const m = await api.saveMeeting({
         ...(initial.id ? { id: initial.id } : {}),
+        ...(initial.event_id ? { event_id: initial.event_id } : {}),
         title: f.title.trim(),
         starts_at: new Date(f.starts_at).toISOString(),
         ends_at: f.ends_at ? new Date(f.ends_at).toISOString() : null,

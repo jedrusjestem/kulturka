@@ -7,6 +7,18 @@
 - Rolę administratora istniejącemu kontu nadasz plikiem `supabase/nadaj-admina.sql` (Supabase → SQL Editor).
 - Administrator **nie jest liczony jako członek**: nie ma go na liście członków, w listach obecności ani w statystykach.
 
+## Wydarzenia – role
+
+| Rola w wydarzeniu | Odpowiednik | Co może |
+|---|---|---|
+| Koordynator główny | przewodniczący (tylko w tym wydarzeniu) | wszystko w wydarzeniu: dane, rekrutacja, sztab, kadra, ogłoszenia, spotkania, usuwanie spotkań |
+| Sztab | zarząd wydarzenia | przyjmuje kadrę, publikuje bez akceptacji, akceptuje wpisy kadry, tworzy spotkania i sprawdza obecność |
+| Kadra | członkowie | widzi ogłoszenia i spotkania wydarzenia, wpisy wymagają akceptacji sztabu, ankiety dostępności |
+
+- Wydarzenia tworzy **przewodniczący lub administrator** i wyznacza koordynatora głównego (bez akceptacji zarządu).
+- Przewodniczący i administrator mają w każdym wydarzeniu pełne uprawnienia. **Zarząd komisji nie ma w wydarzeniach dodatkowych uprawnień** – jest traktowany jak członek.
+- Członkowie zgłaszają się do sztabu lub kadry. Do kadry przyjmuje sztab, do sztabu – koordynator. Po przyjęciu wydarzenie pojawia się automatycznie w „Twoich wydarzeniach”.
+
 ## Role tymczasowe – uprawnienia
 
 - **Publikuje w „Ważne”** bez akceptacji zarządu.

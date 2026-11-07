@@ -9,6 +9,8 @@ import { useAuth } from '../auth';
 import { Avatar, CustomRoleBadges, Empty, RoleBadge, Spinner, gear, Linkify, useToast } from '../components/ui';
 import { profileUrl } from '../lib/qr';
 import { fmtDate } from '../lib/format';
+import FeedbackModal from '../components/FeedbackModal';
+import { Bug } from 'lucide-react';
 
 export default function Profile() {
   const { id } = useParams();
@@ -17,6 +19,7 @@ export default function Profile() {
   const [p, setP] = useState(undefined);
   const [stats, setStats] = useState(null);
   const [qr, setQr] = useState('');
+  const [feedback, setFeedback] = useState(false);
   const isMe = id === me.id;
 
   useEffect(() => {
@@ -179,13 +182,17 @@ export default function Profile() {
         </div>
 
         {isMe && (
-          <div className="row row-wrap hide-desktop">
+          <div className="stack hide-desktop" style={{ gap: 10 }}>
+            <button className="btn btn-ghost btn-block" onClick={() => setFeedback(true)}>
+              <Bug size={17} /> Zgłoś problem lub pomysł
+            </button>
             <button className="btn btn-ghost btn-block" onClick={() => api.signOut()}>
               <LogOut size={17} /> Wyloguj się
             </button>
           </div>
         )}
       </div>
+      {feedback && <FeedbackModal onClose={() => setFeedback(false)} />}
     </>
   );
 }

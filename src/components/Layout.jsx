@@ -1,5 +1,7 @@
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
-import { Home, Megaphone, CalendarDays, Users, UserRound, QrCode, ShieldCheck, LogOut, Smartphone } from 'lucide-react';
+import { Home, Megaphone, CalendarDays, Users, UserRound, QrCode, ShieldCheck, LogOut, Smartphone, PartyPopper, Bug } from 'lucide-react';
+import { useState } from 'react';
+import FeedbackModal from './FeedbackModal';
 import { useAuth } from '../auth';
 import { api, isDemo } from '../api';
 import { Avatar, Logo } from './ui';
@@ -26,9 +28,11 @@ export default function Layout() {
   const main = [
     { to: '/', icon: Home, label: 'Start', end: true },
     { to: '/wazne', icon: Megaphone, label: 'Ważne', count: counts.unreadImportant },
+    { to: '/wydarzenia', icon: PartyPopper, label: 'Wydarzenia' },
     { to: '/spotkania', icon: CalendarDays, label: 'Spotkania' },
     { to: '/czlonkowie', icon: Users, label: 'Członkowie' },
   ];
+  const [feedback, setFeedback] = useState(false);
 
   return (
     <div className="app">
@@ -51,6 +55,10 @@ export default function Layout() {
             <UserRound size={20} />
             Mój profil
           </NavLink>
+          <a href="#" onClick={(e) => { e.preventDefault(); setFeedback(true); }}>
+            <Bug size={20} />
+            Zgłoś problem
+          </a>
           {perms.board && (
             <>
               <div className="nav-label">Zarząd</div>
@@ -111,6 +119,9 @@ export default function Layout() {
               )}
             </Link>
           )}
+          <Link to="/czlonkowie" className="btn btn-icon" aria-label="Członkowie">
+            <Users size={19} />
+          </Link>
           <Link to="/moj-qr" className="btn btn-icon" aria-label="Mój kod QR">
             <QrCode size={19} />
           </Link>
@@ -123,7 +134,7 @@ export default function Layout() {
         </main>
 
         <nav className="bottom-nav">
-          {main.map((n) => (
+          {main.filter((n) => n.to !== '/czlonkowie').map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end}>
               <n.icon size={22} />
               {n.label}
@@ -137,6 +148,7 @@ export default function Layout() {
         </nav>
       </div>
       <RotateLock />
+      {feedback && <FeedbackModal onClose={() => setFeedback(false)} />}
     </div>
   );
 }

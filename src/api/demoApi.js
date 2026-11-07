@@ -213,14 +213,110 @@ function seed() {
   };
 }
 
+function dayAt(d, h, m = 0) {
+  const x = new Date();
+  x.setDate(x.getDate() + d);
+  x.setHours(h, m, 0, 0);
+  return x;
+}
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** Wydarzenie przykładowe: Noc Kultury z zespołem, ogłoszeniem i ankietą dostępności */
+function seedEvents(db) {
+  db.events = [];
+  db.eventMembers = [];
+  db.eventAnnouncements = [];
+  db.polls = [];
+  db.pollResponses = [];
+  db.feedback = db.feedback || [];
+  const by = (n) => db.users.find((u) => u.full_name.startsWith(n));
+  const zofia = by('Zofia'), michal = by('Michał'), kacper = by('Kacper'), julia = by('Julia'), igor = by('Igor'), anna = by('Anna');
+  if (!zofia || !anna) return db;
+  const ev = {
+    id: uuid(),
+    name: 'Noc Kultury 2026',
+    description: 'Całonocne wydarzenie kulturalne w kampusie: koncerty, kino plenerowe, strefa gier i warsztaty.\n\nSzukamy osób do sztabu i kadry!',
+    location: 'Kampus PWr, Plac Grunwaldzki',
+    starts_at: dayAt(21, 18).toISOString(),
+    ends_at: dayAt(22, 4).toISOString(),
+    color: '#8B5CF6',
+    recruitment_open: true,
+    status: 'active',
+    created_by: anna.id,
+    created_at: now(),
+  };
+  const ev2 = {
+    id: uuid(),
+    name: 'Wiosenny koncert charytatywny',
+    description: 'Koncert zespołów studenckich na rzecz schroniska.',
+    location: 'Klub Studencki „Kwadrat"',
+    starts_at: dayAt(60, 19).toISOString(),
+    ends_at: dayAt(60, 23).toISOString(),
+    color: '#F59E0B',
+    recruitment_open: true,
+    status: 'active',
+    created_by: anna.id,
+    created_at: now(),
+  };
+  db.events.push(ev, ev2);
+  const mem = (e, u, role, status = 'accepted', note = '') =>
+    u && db.eventMembers.push({ event_id: e.id, user_id: u.id, role, status, note, decided_by: anna.id, decided_at: now(), created_at: now() });
+  mem(ev, zofia, 'coordinator');
+  mem(ev, michal, 'staff');
+  mem(ev, kacper, 'crew');
+  mem(ev, julia, 'crew');
+  mem(ev, igor, 'crew', 'applied', 'Mogę pomóc przy nagłośnieniu, ale dopiero od 20:00.');
+  mem(ev2, julia, 'coordinator');
+  const ann = {
+    id: uuid(),
+    event_id: ev.id,
+    title: 'Próba generalna – kiedy możecie?',
+    body: 'Zaznaczcie w ankiecie, kiedy możecie przyjść na próbę generalną. Jeśli nie jesteście pewni, dopiszcie notatkę.',
+    author_id: zofia.id,
+    status: 'published',
+    pinned: true,
+    notify: false,
+    reviewed_by: zofia.id,
+    reviewed_at: now(),
+    created_at: now(),
+  };
+  db.eventAnnouncements.push(ann);
+  const days = [dayAt(5, 0), dayAt(6, 0), dayAt(7, 0)].map(ymd);
+  const poll = { id: uuid(), announcement_id: null, event_announcement_id: ann.id, dates: days, start_minute: 960, end_minute: 1320, slot_minutes: 30, created_by: zofia.id, created_at: now() };
+  db.polls.push(poll);
+  const slotsFor = (day, from, to) => {
+    const out = [];
+    for (let m = from; m < to; m += 30) out.push(`${day} ${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+    return out;
+  };
+  const resp = (u, slots, note = '') => db.pollResponses.push({ poll_id: poll.id, user_id: u.id, slots, note, updated_at: now() });
+  resp(zofia, [...slotsFor(days[0], 960, 1200), ...slotsFor(days[1], 1080, 1320)]);
+  resp(michal, [...slotsFor(days[0], 1020, 1260), ...slotsFor(days[2], 960, 1140)]);
+  resp(kacper, [...slotsFor(days[0], 1080, 1320)], 'W środę raczej tak, potwierdzę do poniedziałku.');
+  db.eventAnnouncements.push({
+    id: uuid(), event_id: ev.id, title: 'Podział stref', body: 'Lista stref i osób odpowiedzialnych będzie w agendzie najbliższego spotkania.',
+    author_id: michal.id, status: 'published', pinned: false, notify: false, reviewed_by: michal.id, reviewed_at: now(), created_at: dayAt(-1, 12).toISOString(),
+  });
+  db.meetings.push({
+    id: uuid(), title: 'Spotkanie sztabu Nocy Kultury', description: 'Podział zadań na strefy.', location: 'C-13, sala 0.31',
+    starts_at: dayAt(3, 19).toISOString(), ends_at: dayAt(3, 20, 30).toISOString(), agenda_url: '', sheet_url: '', auto_agenda: true,
+    dirty: false, synced_at: now(), created_by: zofia.id, created_at: now(), updated_at: now(), event_id: ev.id,
+  });
+  return db;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const d = JSON.parse(raw);
+      if (!d.events) seedEvents(d);
+      return d;
+    }
   } catch {
     /* ignore */
   }
-  const db = seed();
+  const db = seedEvents(seed());
   localStorage.setItem(KEY, JSON.stringify(db));
   return db;
 }
@@ -254,6 +350,12 @@ function activeRoleIds(u) {
   return db.assignments.filter((a) => a.user_id === u.id && (!a.expires_at || new Date(a.expires_at) > new Date())).map((a) => a.role_id);
 }
 function hasMeetingPerm(u, meetingId, p) {
+  const mt = db.meetings.find((x) => x.id === meetingId);
+  if (mt?.event_id) {
+    if (isEvStaff(u, mt.event_id)) return true;
+    const ids0 = activeRoleIds(u);
+    return (db.meetingAccess || []).some((x) => x.meeting_id === meetingId && ids0.includes(x.role_id) && (p === 'edit' ? x.can_edit : x.can_scan));
+  }
   if (hasPerm(u, p === 'edit' ? 'manage_meetings' : 'scan')) return true;
   if (!isActive(u)) return false;
   const ids = activeRoleIds(u);
@@ -261,6 +363,16 @@ function hasMeetingPerm(u, meetingId, p) {
     return true;
   const m = db.meetings.find((x) => x.id === meetingId);
   return p === 'edit' && hasPerm(u, 'edit_own') && m?.created_by === u.id;
+}
+function evRole(u, eventId) {
+  const m = (db.eventMembers || []).find((x) => x.event_id === eventId && x.user_id === u?.id && x.status === 'accepted');
+  return m?.role || null;
+}
+const isEvAdmin = (u, e) => isChair(u) || (isActive(u) && evRole(u, e) === 'coordinator');
+const isEvStaff = (u, e) => isEvAdmin(u, e) || (isActive(u) && evRole(u, e) === 'staff');
+const isEvMember = (u, e) => isEvStaff(u, e) || (isActive(u) && !!evRole(u, e));
+function canSeeMeeting(u, m) {
+  return isActive(u) && (!m.event_id || isEvMember(u, m.event_id));
 }
 function deny(cond, msg = 'Brak uprawnień') {
   if (!cond) throw new Error(msg);
@@ -304,6 +416,7 @@ export function createDemoApi() {
         ['Przewodniczący', pick('chair')],
         ['Zarząd', pick('board')],
         ['Członek', db.users.find((u) => u.role === 'member' && db.assignments.some((a) => a.user_id === u.id)) || pick('member')],
+        ['Kadra wydarzenia', db.users.find((u) => u.full_name.startsWith('Kacper'))],
         ['Oczekujący', pick('pending')],
       ].filter(([, u]) => u);
     },
@@ -501,11 +614,15 @@ export function createDemoApi() {
         .filter((a) => (a.status === 'published' && isActive(u)) || a.author_id === u.id || isBoard(u))
         .map((a) => {
           const au = db.users.find((x) => x.id === a.author_id);
-          return { ...a, author: au ? { id: au.id, full_name: au.full_name, avatar_url: au.avatar_url } : null };
+          return {
+            ...a,
+            author: au ? { id: au.id, full_name: au.full_name, avatar_url: au.avatar_url } : null,
+            poll: (db.polls || []).find((pl) => pl.announcement_id === a.id) || null,
+          };
         })
         .sort((a, b) => (b.pinned - a.pinned) || b.created_at.localeCompare(a.created_at));
     },
-    async createAnnouncement({ title, body }) {
+    async createAnnouncement({ title, body, notify }) {
       await delay();
       const u = me();
       deny(isActive(u));
@@ -517,6 +634,7 @@ export function createDemoApi() {
         author_id: u.id,
         status: direct ? 'published' : 'pending',
         pinned: false,
+        notify: direct && !!notify,
         reviewed_by: direct ? u.id : null,
         reviewed_at: direct ? now() : null,
         created_at: now(),
@@ -550,12 +668,13 @@ export function createDemoApi() {
     // ---------- meetings ----------
     async listMeetings() {
       await delay(60);
-      deny(isActive(me()));
-      return [...db.meetings].sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+      const u = me();
+      deny(isActive(u));
+      return db.meetings.filter((m) => canSeeMeeting(u, m)).sort((a, b) => a.starts_at.localeCompare(b.starts_at));
     },
     async getMeeting(id) {
-      deny(isActive(me()));
-      return db.meetings.find((m) => m.id === id) || null;
+      const m = db.meetings.find((x) => x.id === id);
+      return m && canSeeMeeting(me(), m) ? m : null;
     },
     async saveMeeting(m) {
       await delay();
@@ -566,7 +685,7 @@ export function createDemoApi() {
         save();
         return x;
       }
-      deny(hasPerm(me(), 'manage_meetings'));
+      deny(m.event_id ? isEvStaff(me(), m.event_id) : hasPerm(me(), 'manage_meetings'));
       const x = {
         ...m,
         id: uuid(),
@@ -583,7 +702,8 @@ export function createDemoApi() {
       return x;
     },
     async deleteMeeting(id) {
-      deny(hasPerm(me(), 'manage_meetings'));
+      const mt = db.meetings.find((x) => x.id === id);
+      deny(mt?.event_id ? isEvAdmin(me(), mt.event_id) : hasPerm(me(), 'manage_meetings'));
       db.meetings = db.meetings.filter((m) => m.id !== id);
       db.attendance = db.attendance.filter((a) => a.meeting_id !== id);
       db.meetingAccess = (db.meetingAccess || []).filter((x) => x.meeting_id !== id);
@@ -662,6 +782,222 @@ export function createDemoApi() {
     async listAudit() {
       deny(isBoard(me()));
       return db.audit;
+    },
+
+    // ---------- wydarzenia ----------
+    async listEvents() {
+      await delay(60);
+      deny(isActive(me()));
+      return [...db.events].sort((a, b) => (a.starts_at || '').localeCompare(b.starts_at || ''));
+    },
+    async getEvent(id) {
+      deny(isActive(me()));
+      return db.events.find((e) => e.id === id) || null;
+    },
+    async saveEvent(e) {
+      await delay();
+      const u = me();
+      if (e.id) {
+        deny(isEvAdmin(u, e.id), 'Wydarzenie edytuje koordynator główny lub przewodniczący');
+        const x = db.events.find((y) => y.id === e.id);
+        Object.assign(x, e);
+        save();
+        return x;
+      }
+      deny(isChair(u), 'Wydarzenia tworzy przewodniczący');
+      const x = { color: '#45B0E5', recruitment_open: true, status: 'active', ...e, id: uuid(), created_by: u.id, created_at: now() };
+      db.events.push(x);
+      save();
+      return x;
+    },
+    async deleteEvent(id) {
+      deny(isChair(me()));
+      db.events = db.events.filter((e) => e.id !== id);
+      db.eventMembers = db.eventMembers.filter((m) => m.event_id !== id);
+      const annIds = db.eventAnnouncements.filter((a) => a.event_id === id).map((a) => a.id);
+      db.eventAnnouncements = db.eventAnnouncements.filter((a) => a.event_id !== id);
+      db.polls = db.polls.filter((p) => !annIds.includes(p.event_announcement_id));
+      db.meetings = db.meetings.filter((m) => m.event_id !== id);
+      save();
+    },
+    async listEventMembers(eventId) {
+      const u = me();
+      return db.eventMembers
+        .filter((m) => m.event_id === eventId && (m.user_id === u.id || isEvStaff(u, eventId) || m.status === 'accepted'))
+        .map((m) => ({ ...m, profile: db.users.find((x) => x.id === m.user_id) }));
+    },
+    async listMyEventMemberships() {
+      return db.eventMembers.filter((m) => m.user_id === sessionUserId());
+    },
+    async listAllEventMembers() {
+      return db.eventMembers.filter((m) => m.status === 'accepted' || m.user_id === sessionUserId());
+    },
+    async applyToEvent(eventId, role, note) {
+      await delay();
+      const u = me();
+      const e = db.events.find((x) => x.id === eventId);
+      deny(e?.recruitment_open, 'Rekrutacja do tego wydarzenia jest zamknięta');
+      deny(!db.eventMembers.some((m) => m.event_id === eventId && m.user_id === u.id), 'Już się zgłosiłeś(-aś) do tego wydarzenia');
+      db.eventMembers.push({ event_id: eventId, user_id: u.id, role: role === 'staff' ? 'staff' : 'crew', status: 'applied', note: note || '', created_at: now() });
+      save();
+    },
+    async addEventMember(eventId, userId, role) {
+      await delay();
+      const u = me();
+      if (role === 'coordinator') {
+        deny(isChair(u), 'Koordynatora głównego wyznacza przewodniczący komisji');
+        db.eventMembers = db.eventMembers.map((m) => (m.event_id === eventId && m.role === 'coordinator' ? { ...m, role: 'staff' } : m));
+      } else if (role === 'staff') deny(isEvAdmin(u, eventId), 'Do sztabu dodaje koordynator główny');
+      else deny(isEvStaff(u, eventId), 'Brak uprawnień');
+      db.eventMembers = db.eventMembers.filter((m) => !(m.event_id === eventId && m.user_id === userId));
+      db.eventMembers.push({ event_id: eventId, user_id: userId, role, status: 'accepted', note: '', decided_by: u.id, decided_at: now(), created_at: now() });
+      save();
+    },
+    async updateEventMember(eventId, userId, patch) {
+      await delay();
+      const u = me();
+      const m = db.eventMembers.find((x) => x.event_id === eventId && x.user_id === userId);
+      deny(m);
+      const role = patch.role ?? m.role;
+      if ((role === 'coordinator' || m.role === 'coordinator') && role !== m.role) deny(isChair(u), 'Koordynatora głównego wyznacza przewodniczący komisji');
+      if (role === 'staff' || (m.role === 'staff' && m.status === 'accepted')) deny(isEvAdmin(u, eventId), 'O sztabie decyduje koordynator główny');
+      deny(isEvStaff(u, eventId));
+      Object.assign(m, patch, { decided_by: u.id, decided_at: now() });
+      save();
+    },
+    async removeEventMember(eventId, userId) {
+      await delay();
+      const u = me();
+      const m = db.eventMembers.find((x) => x.event_id === eventId && x.user_id === userId);
+      if (m && m.user_id !== u.id) {
+        if (m.role === 'coordinator') deny(isChair(u), 'Koordynatora głównego może usunąć tylko przewodniczący komisji');
+        if (m.role === 'staff') deny(isEvAdmin(u, eventId), 'Członków sztabu usuwa koordynator główny');
+        deny(isEvStaff(u, eventId));
+      }
+      db.eventMembers = db.eventMembers.filter((x) => x !== m);
+      save();
+    },
+    async listEventAnnouncements(eventId) {
+      await delay(60);
+      const u = me();
+      if (!isEvMember(u, eventId)) return [];
+      return db.eventAnnouncements
+        .filter((a) => a.event_id === eventId && (a.status === 'published' || a.author_id === u.id || isEvStaff(u, eventId)))
+        .map((a) => {
+          const au = db.users.find((x) => x.id === a.author_id);
+          return {
+            ...a,
+            author: au ? { id: au.id, full_name: au.full_name, avatar_url: au.avatar_url } : null,
+            poll: db.polls.find((pl) => pl.event_announcement_id === a.id) || null,
+          };
+        })
+        .sort((a, b) => (b.pinned - a.pinned) || b.created_at.localeCompare(a.created_at));
+    },
+    async createEventAnnouncement({ event_id, title, body, notify }) {
+      await delay();
+      const u = me();
+      deny(isEvMember(u, event_id));
+      const direct = isEvStaff(u, event_id);
+      const a = {
+        id: uuid(), event_id, title, body, author_id: u.id, status: direct ? 'published' : 'pending', pinned: false,
+        notify: direct && !!notify, reviewed_by: direct ? u.id : null, reviewed_at: direct ? now() : null, created_at: now(),
+      };
+      db.eventAnnouncements.push(a);
+      save();
+      return a;
+    },
+    async updateEventAnnouncement(id, patch) {
+      const u = me();
+      const a = db.eventAnnouncements.find((x) => x.id === id);
+      const staff = isEvStaff(u, a.event_id);
+      deny(staff || (a.author_id === u.id && a.status === 'pending'));
+      if (!staff) {
+        delete patch.status;
+        delete patch.pinned;
+        delete patch.notify;
+      }
+      Object.assign(a, patch);
+      save();
+    },
+    async deleteEventAnnouncement(id) {
+      const u = me();
+      const a = db.eventAnnouncements.find((x) => x.id === id);
+      deny(isEvStaff(u, a.event_id) || a.author_id === u.id);
+      db.eventAnnouncements = db.eventAnnouncements.filter((x) => x.id !== id);
+      db.polls = db.polls.filter((p) => p.event_announcement_id !== id);
+      save();
+    },
+
+    // ---------- ankiety dostępności ----------
+    async createPoll(poll) {
+      const u = me();
+      if (poll.announcement_id) {
+        const a = db.announcements.find((x) => x.id === poll.announcement_id);
+        deny(a && (a.author_id === u.id || isBoard(u)));
+      } else {
+        const a = db.eventAnnouncements.find((x) => x.id === poll.event_announcement_id);
+        deny(a && (a.author_id === u.id || isEvStaff(u, a.event_id)));
+      }
+      const x = { announcement_id: null, event_announcement_id: null, ...poll, id: uuid(), created_by: u.id, created_at: now() };
+      db.polls.push(x);
+      save();
+      return x;
+    },
+    async deletePoll(id) {
+      db.polls = db.polls.filter((p) => p.id !== id);
+      db.pollResponses = db.pollResponses.filter((r) => r.poll_id !== id);
+      save();
+    },
+    async listPollResponses(pollId) {
+      await delay(40);
+      return db.pollResponses
+        .filter((r) => r.poll_id === pollId)
+        .map((r) => {
+          const p = db.users.find((x) => x.id === r.user_id);
+          return { ...r, profile: p ? { id: p.id, full_name: p.full_name, avatar_url: p.avatar_url } : null };
+        });
+    },
+    async saveMyAvailability(pollId, slots, note) {
+      await delay();
+      const uid = sessionUserId();
+      db.pollResponses = db.pollResponses.filter((r) => !(r.poll_id === pollId && r.user_id === uid));
+      db.pollResponses.push({ poll_id: pollId, user_id: uid, slots, note, updated_at: now() });
+      save();
+    },
+    async deleteMyAvailability(pollId) {
+      const uid = sessionUserId();
+      db.pollResponses = db.pollResponses.filter((r) => !(r.poll_id === pollId && r.user_id === uid));
+      save();
+    },
+
+    // ---------- zgłoszenia problemów, aktywność ----------
+    async sendFeedback(message, page) {
+      await delay();
+      db.feedback = db.feedback || [];
+      db.feedback.unshift({ id: Date.now(), user_id: sessionUserId(), message, page, resolved: false, created_at: now() });
+      save();
+    },
+    async listFeedback() {
+      const u = me();
+      return (db.feedback || [])
+        .filter((f) => isChair(u) || f.user_id === u.id)
+        .map((f) => {
+          const p = db.users.find((x) => x.id === f.user_id);
+          return { ...f, author: p ? { id: p.id, full_name: p.full_name, avatar_url: p.avatar_url } : null };
+        });
+    },
+    async resolveFeedback(id, resolved = true) {
+      deny(isChair(me()));
+      const f = (db.feedback || []).find((x) => x.id === id);
+      if (f) f.resolved = resolved;
+      save();
+    },
+    async touchSeen() {
+      const u = me();
+      if (u) {
+        u.last_seen_at = now();
+        save();
+      }
     },
   };
 }

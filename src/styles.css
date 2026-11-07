@@ -1689,3 +1689,187 @@ table.table {
     display: none !important;
   }
 }
+
+/* ---------- ankieta dostępności (styl Crab Fit) ---------- */
+.avail {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--sky-50);
+  border: 1px solid var(--sky-100);
+}
+.avail-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 4px;
+}
+.avail-grid {
+  display: grid;
+  gap: 0 3px;
+  user-select: none;
+  -webkit-user-select: none;
+  min-width: min-content;
+}
+.avail-grid.paint {
+  touch-action: none; /* przeciąganie palcem zaznacza, zamiast przewijać */
+  cursor: crosshair;
+}
+.avail-day {
+  text-align: center;
+  line-height: 1.1;
+  padding-bottom: 6px;
+  position: sticky;
+  top: 0;
+}
+.avail-day b {
+  display: block;
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.avail-day span {
+  font-size: 11px;
+  color: var(--gray-500);
+}
+.avail-time {
+  font-size: 10.5px;
+  color: var(--gray-500);
+  text-align: right;
+  padding-right: 6px;
+  transform: translateY(-6px);
+  height: 18px;
+}
+.avail-cell {
+  height: 18px;
+  background: #fff;
+  border: 0;
+  border-top: 1px dashed var(--gray-200);
+  padding: 0;
+  display: block;
+  width: 100%;
+}
+.avail-cell.hour {
+  border-top: 1px solid var(--sky-200);
+}
+.avail-cell.on {
+  background: var(--sky-500);
+  border-top-color: rgba(255, 255, 255, 0.35);
+}
+.avail-cell.heat {
+  cursor: pointer;
+}
+.avail-cell.focus {
+  outline: 2px solid var(--navy-900);
+  outline-offset: -2px;
+  position: relative;
+  z-index: 1;
+}
+.avail-legend {
+  width: 90px;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #fff, rgba(35, 148, 208, 0.25), rgba(35, 148, 208, 1));
+  border: 1px solid var(--sky-100);
+}
+.avail-focus {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--sky-100);
+}
+.avail-best {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  border: 1px solid var(--sky-100);
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.avail-best b {
+  color: var(--sky-700);
+}
+.avail-people {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--sky-100);
+  display: grid;
+  gap: 8px;
+}
+
+/* ---------- wydarzenia ---------- */
+.event-card {
+  display: block;
+  overflow: hidden;
+  color: inherit;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.event-card:hover {
+  text-decoration: none;
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+.event-cover {
+  height: 84px;
+  position: relative;
+  overflow: hidden;
+  padding: 14px 16px;
+  color: #fff;
+  display: flex;
+  align-items: flex-end;
+}
+.event-cover img {
+  position: absolute;
+  right: -30px;
+  top: -40px;
+  width: 150px;
+  opacity: 0.25;
+}
+.event-hero {
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.event-hero .gear-bg {
+  position: absolute;
+  right: -50px;
+  top: -50px;
+  width: 230px;
+  opacity: 0.2;
+  animation: spin 90s linear infinite;
+}
+.event-hero h1 {
+  position: relative;
+  font-size: 26px;
+}
+.event-hero .meta {
+  position: relative;
+  opacity: 0.95;
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 14px;
+}
+.badge-event {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+.install-hint {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #fff;
+  border: 1px dashed var(--sky-300);
+  font-size: 13.5px;
+}

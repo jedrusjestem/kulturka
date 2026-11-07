@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, Megaphone, QrCode, Users, ScanLine, ChevronRight, MapPin, ShieldCheck, TrendingUp } from 'lucide-react';
+import { CalendarDays, Megaphone, QrCode, Users, ScanLine, ChevronRight, MapPin, ShieldCheck, TrendingUp, PartyPopper } from 'lucide-react';
+import InstallHint from '../components/InstallHint';
+import { EVENT_ROLE_LABELS } from '../lib/perms';
+import { eventDates } from './Events';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, Empty, gear, CustomRoleBadges } from '../components/ui';
@@ -30,8 +33,15 @@ export default function HomePage() {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    Promise.all([api.listMeetings(), api.listAnnouncements(), api.listProfiles(), api.listMyAttendance()])
-      .then(([meetings, anns, people, myAtt]) => setData({ meetings, anns, people, myAtt }))
+    Promise.all([
+      api.listMeetings(),
+      api.listAnnouncements(),
+      api.listProfiles(),
+      api.listMyAttendance(),
+      api.listEvents().catch(() => []),
+      api.listMyEventMemberships().catch(() => []),
+    ])
+      .then(([meetings, anns, people, myAtt, events, myEv]) => setData({ meetings, anns, people, myAtt, events, myEv }))
       .catch(console.error);
   }, []);
 
@@ -43,6 +53,9 @@ export default function HomePage() {
   const published = data?.anns.filter((a) => a.status === 'published').slice(0, 3) || [];
   const members = data?.people.filter((p) => isMemberRole(p.role)) || [];
   const today = upcoming.find((m) => sameDay(m.starts_at, new Date()));
+  const myEvents = (data?.events || [])
+    .map((e) => ({ e, m: data.myEv.find((x) => x.event_id === e.id && x.status === 'accepted') }))
+    .filter((x) => x.m && x.e.status === 'active');
 
   return (
     <div className="stack" style={{ gap: 20 }}>
@@ -77,6 +90,8 @@ export default function HomePage() {
           )}
         </div>
       </section>
+
+      <InstallHint />
 
       <section className="grid stats-grid">
         <div className="card stat">
@@ -119,6 +134,35 @@ export default function HomePage() {
           </Link>
         )}
       </section>
+
+      {myEvents.length > 0 && (
+        <section className="card">
+          <div className="card-head">
+            <h2>Twoje wydarzenia</h2>
+            <Link to="/wydarzenia" className="small row" style={{ gap: 2 }}>
+              Wszystkie <ChevronRight size={16} />
+            </Link>
+          </div>
+          <div className="list">
+            {myEvents.map(({ e, m }) => (
+              <Link key={e.id} to={`/wydarzenia/${e.id}`} className="list-item">
+                <div className="stat-icon" style={{ background: e.color, color: '#fff', width: 42, height: 42 }}>
+                  <PartyPopper size={20} />
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <b className="truncate" style={{ display: 'block' }}>
+                    {e.name}
+                  </b>
+                  <div className="small muted truncate">
+                    {EVENT_ROLE_LABELS[m.role]} · {eventDates(e)}
+                  </div>
+                </div>
+                <ChevronRight size={18} className="muted" />
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="grid grid-2">
         <div className="card">

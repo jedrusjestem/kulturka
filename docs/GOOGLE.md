@@ -37,6 +37,16 @@ Po chwili w folderze pojawią się agendy i arkusze, a w aplikacji przy spotkani
 
 Utwórz dokument Google Docs z własnym wyglądem i znacznikami: `{{TYTUL}}`, `{{DATA}}`, `{{GODZINA}}`, `{{MIEJSCE}}`, `{{OPIS}}`. Wklej jego link w ustawieniach („Szablon agendy”). Skrypt będzie robił kopie tego dokumentu.
 
+### Powiadomienia e-mail i kopia zapasowa
+
+Ten sam skrypt wysyła e-maile z kolejki (z konta komisji, przez `MailApp`) i raz w tygodniu (poniedziałek ok. 3:00) zapisuje kopię bazy jako plik JSON w podfolderze **„Kopie zapasowe”** (trzyma 8 ostatnich). Kopię możesz też zrobić ręcznie: wybierz funkcję `backup` i kliknij **Uruchom**.
+
+- Limit Google dla zwykłego konta to ok. **100 adresatów dziennie**. Gdy zabraknie limitu, reszta wyśle się następnego dnia.
+- Przypomnienia przed spotkaniami włączasz w *Panel zarządu → Google i ustawienia*.
+- Kopia zawiera dane osobowe członków – folder komisji udostępniaj tylko zarządowi.
+
+> **Po aktualizacji do wersji z wydarzeniami** wklej nowy `Code.gs`, zapisz i **uruchom ponownie funkcję `setup`** (dodaje cotygodniowy wyzwalacz kopii zapasowej).
+
 ### Udostępnianie agend do edycji (opcjonalnie)
 
 W *Panel zarządu → Google i ustawienia* można włączyć „Udostępniaj agendy do edycji”. Skrypt dodaje wtedy jako edytorów agendy:

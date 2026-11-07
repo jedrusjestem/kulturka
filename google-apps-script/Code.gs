@@ -5,7 +5,9 @@
  *   1. tworzy agendy (Google Docs) dla nowych spotkań,
  *   2. tworzy/aktualizuje arkusz obecności każdego zmienionego spotkania,
  *   3. odświeża zbiorczy arkusz „Frekwencja – KKiP”,
- *   4. przy okazji „budzi” bazę Supabase (darmowy plan usypia ją po 7 dniach bez ruchu).
+ *   4. wysyła powiadomienia e-mail z kolejki (zatwierdzenie konta, ważne ogłoszenia, wydarzenia, przypomnienia),
+ *   5. raz w tygodniu robi kopię zapasową bazy (JSON) w podfolderze „Kopie zapasowe”,
+ *   6. przy okazji „budzi” bazę Supabase (darmowy plan usypia ją po 7 dniach bez ruchu).
  *
  * Źródłem prawdy jest baza (Supabase). Arkusze są lustrem – ręczne zmiany w arkuszu
  * zostaną nadpisane przy następnej synchronizacji. Obecność zmieniaj w aplikacji.
@@ -27,8 +29,9 @@ const BRAND = '#7DC9EE';
 function setup() {
   ScriptApp.getProjectTriggers().forEach((t) => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('sync').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('backup').timeBased().everyWeeks(1).onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(3).create();
   sync();
-  Logger.log('Gotowe. Wyzwalacz co 5 minut zainstalowany.');
+  Logger.log('Gotowe. Synchronizacja co 5 minut + kopia zapasowa w poniedziałki ok. 3:00.');
 }
 
 /** Web app: przycisk „Synchronizuj teraz” w aplikacji wywołuje ?action=sync */
@@ -57,6 +60,12 @@ function sync() {
   if (!lock.tryLock(25000)) return;
   try {
     const settings = (sb('GET', 'app_settings?id=eq.1&select=*') || [])[0] || {};
+    try {
+      meetingReminders(settings);
+      processNotifications(settings);
+    } catch (err) {
+      console.error('Powiadomienia: ' + err);
+    }
     if (!settings.drive_folder_id) {
       console.log('Brak folderu Google Drive w ustawieniach aplikacji – tylko keep-alive.');
       return;
@@ -81,8 +90,15 @@ function sync() {
       }
       if (m.dirty) {
         const att = sb('GET', 'attendance?select=*&meeting_id=eq.' + m.id) || [];
-        patch.sheet_url = writeAttendanceSheet(m, folder, people, att);
-        anyAttendanceChange = true;
+        let list = people;
+        if (m.event_id) {
+          // spotkanie wydarzenia: lista = zespół wydarzenia
+          const team = (sb('GET', 'event_members?select=user_id&status=eq.accepted&event_id=eq.' + m.event_id) || []).map((x) => x.user_id);
+          list = people.filter((p) => team.indexOf(p.id) >= 0);
+        } else {
+          anyAttendanceChange = true;
+        }
+        patch.sheet_url = writeAttendanceSheet(m, folder, list, att);
       }
       patch.dirty = false;
       patch.synced_at = new Date().toISOString();
@@ -235,7 +251,7 @@ function writeSummary(folder, people) {
     DriveApp.getFileById(ss.getId()).moveTo(folder);
     props.setProperty(key, ss.getId());
   }
-  const meetings = (sb('GET', 'meetings?select=id,title,starts_at&order=starts_at&starts_at=lt.' + encodeURIComponent(new Date().toISOString())) || []);
+  const meetings = (sb('GET', 'meetings?select=id,title,starts_at&event_id=is.null&order=starts_at&starts_at=lt.' + encodeURIComponent(new Date().toISOString())) || []);
   const att = sb('GET', 'attendance?select=meeting_id,user_id,present') || [];
   const map = {};
   att.forEach((a) => (map[a.meeting_id + '|' + a.user_id] = a.present));
@@ -263,6 +279,131 @@ function writeSummary(folder, people) {
   sh.setFrozenRows(1);
   sh.setFrozenColumns(1);
   sh.autoResizeColumn(1);
+}
+
+// ---------------------------------------------------------------------------
+//  Powiadomienia e-mail
+// ---------------------------------------------------------------------------
+function meetingReminders(settings) {
+  if (!settings.meeting_reminders) return;
+  const now = new Date();
+  const in24 = new Date(now.getTime() + 24 * 3600e3);
+  const ms =
+    sb('GET', 'meetings?select=id,title,starts_at,location,event_id&reminder_sent_at=is.null&and=(starts_at.gt.' +
+      encodeURIComponent(now.toISOString()) + ',starts_at.lt.' + encodeURIComponent(in24.toISOString()) + ')') || [];
+  if (!ms.length) return;
+  const members = sb('GET', 'profiles?select=id,notify_email,role&role=in.(member,board,chair)') || [];
+  ms.forEach((m) => {
+    let ids = members.map((p) => p.id);
+    if (m.event_id) {
+      const team = (sb('GET', 'event_members?select=user_id&status=eq.accepted&event_id=eq.' + m.event_id) || []).map((x) => x.user_id);
+      ids = ids.filter((id) => team.indexOf(id) >= 0);
+    }
+    const allowed = {};
+    members.forEach((p) => (allowed[p.id] = p.notify_email !== false));
+    const when = Utilities.formatDate(new Date(m.starts_at), TZ, 'EEEE dd.MM, HH:mm');
+    const rows = ids.filter((id) => allowed[id]).map((id) => ({
+      user_id: id,
+      subject: 'Przypomnienie: ' + m.title + ' (' + Utilities.formatDate(new Date(m.starts_at), TZ, 'dd.MM HH:mm') + ')',
+      body: 'Jutro / wkrótce: ' + m.title + '\n' + when + (m.location ? '\nMiejsce: ' + m.location : '') + '\n\nPamiętaj o kodzie QR obecności w aplikacji.',
+      link: '#/spotkania/' + m.id,
+    }));
+    if (rows.length) sb('POST', 'notifications', rows);
+    sb('PATCH', 'meetings?id=eq.' + m.id, { reminder_sent_at: new Date().toISOString() });
+  });
+}
+
+function processNotifications(settings) {
+  let quota = MailApp.getRemainingDailyQuota();
+  if (quota < 3) {
+    console.log('Dzienny limit e-maili wyczerpany – reszta wyśle się jutro.');
+    return;
+  }
+  const rows =
+    sb('GET', 'notifications?select=id,user_id,subject,body,link,profile:profiles(email,full_name,notify_email)&sent_at=is.null&order=created_at&limit=300') || [];
+  if (!rows.length) return;
+  const byUser = {};
+  rows.forEach((r) => (byUser[r.user_id] = byUser[r.user_id] || []).push(r));
+  const appUrl = settings.app_url || '';
+  Object.keys(byUser).forEach((uid) => {
+    if (quota < 2) return; // zostaw resztę na kolejne uruchomienie / jutro
+    const list = byUser[uid];
+    const p = list[0].profile;
+    const filter = 'notifications?id=in.(' + list.map((r) => r.id).join(',') + ')';
+    if (!p || !p.email || p.notify_email === false) {
+      sb('PATCH', filter, { sent_at: new Date().toISOString(), error: 'pominięto (brak zgody / adresu)' });
+      return;
+    }
+    const subject = list.length === 1 ? list[0].subject : 'Kulturka: ' + list.length + ' nowe powiadomienia';
+    try {
+      MailApp.sendEmail({ to: p.email, subject: subject, htmlBody: emailHtml(p.full_name, list, appUrl), name: 'Kulturka – KKiP SS PWr' });
+      quota--;
+      sb('PATCH', filter, { sent_at: new Date().toISOString() });
+    } catch (err) {
+      sb('PATCH', filter, { sent_at: new Date().toISOString(), error: String(err).slice(0, 300) });
+    }
+  });
+}
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+}
+
+function emailHtml(name, list, appUrl) {
+  const items = list
+    .map((n) => {
+      const href = appUrl ? appUrl + (n.link || '') : '';
+      return (
+        '<div style="padding:16px 0;border-bottom:1px solid #e3eaf0">' +
+        '<div style="font-size:16px;font-weight:600;color:#0d2436">' + esc(n.subject) + '</div>' +
+        '<div style="font-size:14px;color:#3d5a73;white-space:pre-wrap;margin-top:6px">' + esc(n.body) + '</div>' +
+        (href ? '<a href="' + esc(href) + '" style="display:inline-block;margin-top:10px;background:#2394d0;color:#fff;text-decoration:none;padding:8px 14px;border-radius:10px;font-size:14px;font-weight:600">Otwórz w aplikacji</a>' : '') +
+        '</div>'
+      );
+    })
+    .join('');
+  return (
+    '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;background:#f5f9fc;padding:20px">' +
+    '<div style="background:#7dc9ee;color:#fff;border-radius:16px 16px 0 0;padding:18px 22px;font-size:18px;font-weight:700">KULTURKA · Komisja Kultury i Projektów</div>' +
+    '<div style="background:#fff;border-radius:0 0 16px 16px;padding:6px 22px 18px">' +
+    '<p style="font-size:14px;color:#0d2436">Cześć ' + esc((name || '').split(' ')[0]) + '!</p>' + items +
+    '<p style="font-size:12px;color:#6b7f90;margin-top:16px">Powiadomienia możesz wyłączyć w aplikacji: Mój profil → Edytuj → „Wysyłaj mi powiadomienia e-mail”.</p>' +
+    '</div></div>'
+  );
+}
+
+// ---------------------------------------------------------------------------
+//  Kopia zapasowa (co tydzień; można też uruchomić ręcznie funkcję backup)
+// ---------------------------------------------------------------------------
+function backup() {
+  const settings = (sb('GET', 'app_settings?id=eq.1&select=*') || [])[0] || {};
+  if (!settings.drive_folder_id || settings.backups_enabled === false) return;
+  const tables = [
+    'app_settings', 'profiles', 'custom_roles', 'custom_role_assignments', 'announcements', 'meetings', 'attendance',
+    'meeting_role_access', 'events', 'event_members', 'event_announcements', 'availability_polls', 'availability_responses',
+    'audit_log', 'feedback',
+  ];
+  const data = { created_at: new Date().toISOString(), note: 'Kopia Kulturki (bez haseł i sekretów QR)', tables: {} };
+  tables.forEach((t) => {
+    const all = [];
+    for (let offset = 0; offset < 100000; offset += 1000) {
+      const page = sb('GET', t + '?select=*&limit=1000&offset=' + offset) || [];
+      page.forEach((r) => all.push(r));
+      if (page.length < 1000) break;
+    }
+    data.tables[t] = all;
+  });
+  const parent = DriveApp.getFolderById(settings.drive_folder_id);
+  const it = parent.getFoldersByName('Kopie zapasowe');
+  const folder = it.hasNext() ? it.next() : parent.createFolder('Kopie zapasowe');
+  folder.createFile('kulturka-kopia-' + Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd_HHmm') + '.json', JSON.stringify(data), 'application/json');
+  // zostaw 8 najnowszych kopii
+  const files = [];
+  const fit = folder.getFiles();
+  while (fit.hasNext()) files.push(fit.next());
+  files.sort((a, b) => b.getDateCreated() - a.getDateCreated());
+  files.slice(8).forEach((f) => f.setTrashed(true));
+  console.log('Kopia zapasowa zapisana w folderze „Kopie zapasowe”.');
 }
 
 // ---------------------------------------------------------------------------

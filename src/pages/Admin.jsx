@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  UserCheck, UserX, Users, Tags, Settings, Download, History, Plus, Trash2, Pencil, X, Search, FolderOpen, RefreshCw, Info, Check,
+  UserCheck, UserX, Users, Tags, Settings, Download, History, Plus, Trash2, Pencil, X, Search, FolderOpen, RefreshCw, Info, Check, Bug, Mail, Activity,
 } from 'lucide-react';
 import { api, isDemo } from '../api';
 import { useAuth } from '../auth';
@@ -37,6 +37,7 @@ export default function Admin() {
     ['settings', Settings, 'Google i ustawienia'],
     ['export', Download, 'Eksport'],
     ['audit', History, 'Dziennik'],
+    ...(perms.chair ? [['feedback', Bug, 'Zgłoszenia problemów']] : []),
   ];
 
   return (
@@ -67,7 +68,7 @@ export default function Admin() {
       ) : tab === 'export' ? (
         <ExportTab people={people} />
       ) : (
-        <AuditTab people={people} />
+        tab === 'feedback' ? <FeedbackTab /> : <AuditTab people={people} />
       )}
     </>
   );
@@ -174,6 +175,7 @@ function MembersTab({ people, roles, reload, perms }) {
               <th>Osoba</th>
               <th>Rola</th>
               <th>Role tymczasowe</th>
+              <th className="hide-mobile">Ostatnio</th>
               <th />
             </tr>
           </thead>
@@ -230,6 +232,7 @@ function MembersTab({ people, roles, reload, perms }) {
                     })}
                   </div>
                 </td>
+                <td className="hide-mobile tiny muted nowrap">{p.last_seen_at ? relTime(p.last_seen_at) : '—'}</td>
                 <td className="nowrap" style={{ textAlign: 'right' }}>
                   {isActiveRole(p.role) && roles.length > 0 && (
                     <button className="btn btn-ghost btn-sm" onClick={() => setGrantFor(p)}>
@@ -492,6 +495,9 @@ function SettingsTab({ canEdit }) {
         apps_script_url: s.apps_script_url.trim(),
         agenda_template_id: parseDocId(s.agenda_template_id),
         share_agendas: !!s.share_agendas,
+        meeting_reminders: !!s.meeting_reminders,
+        backups_enabled: s.backups_enabled !== false,
+        app_url: window.location.origin + window.location.pathname,
       });
       toast.success('Zapisano ustawienia');
       setS(await api.getSettings());
@@ -559,6 +565,27 @@ function SettingsTab({ canEdit }) {
             </a>
           )}
         </div>
+      </div>
+
+      <div className="card card-pad stack">
+        <h3 className="row" style={{ gap: 8 }}>
+          <Mail size={18} /> Powiadomienia e-mail i kopie zapasowe
+        </h3>
+        <p className="small muted">
+          E-maile wysyła skrypt Google z konta komisji (limit Google: ok. 100 adresatów dziennie na zwykłym koncie). Zawsze wysyłane są:
+          zatwierdzenie konta, przyjęcie do wydarzenia, zgłoszenia do wydarzeń (dla sztabu) oraz ogłoszenia z zaznaczonym „wyślij e-mail”.
+          Każdy może wyłączyć e-maile w swoim profilu.
+        </p>
+        <label className="check">
+          <input type="checkbox" checked={!!s.meeting_reminders} disabled={!canEdit}
+            onChange={(e) => setS((x) => ({ ...x, meeting_reminders: e.target.checked }))} />
+          <span>Przypomnienie e-mail dzień przed spotkaniem (do członków / zespołu wydarzenia)</span>
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={s.backups_enabled !== false} disabled={!canEdit}
+            onChange={(e) => setS((x) => ({ ...x, backups_enabled: e.target.checked }))} />
+          <span>Cotygodniowa automatyczna kopia zapasowa bazy (plik JSON w podfolderze „Kopie zapasowe” na Dysku komisji)</span>
+        </label>
       </div>
 
       <div className="card card-pad stack">
@@ -633,6 +660,9 @@ function ExportTab({ people }) {
     <div className="grid grid-2">
       <div className="card card-pad stack">
         <h3>Lista członków</h3>
+        <p className="small row" style={{ gap: 6, color: 'var(--sky-700)' }}>
+          <Activity size={15} /> Aktywni w ostatnich 30 dniach: <b>{members.filter((p) => p.last_seen_at && Date.now() - new Date(p.last_seen_at) < 30 * 864e5).length}</b> z {members.length}
+        </p>
         <p className="small muted">Plik CSV (otworzysz w Excelu lub Arkuszach Google) z danymi wszystkich aktywnych członków.</p>
         <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={exportMembers}>
           <Download size={16} /> Pobierz CSV
@@ -688,6 +718,56 @@ function AuditTab({ people }) {
           <span className="tiny muted nowrap" title={fmtDateTime(i.created_at)}>
             {relTime(i.created_at)}
           </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+function FeedbackTab() {
+  const toast = useToast();
+  const [items, setItems] = useState(null);
+  const load = () => api.listFeedback().then(setItems).catch((e) => toast.error(e));
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!items) return <Spinner center />;
+  if (!items.length)
+    return (
+      <div className="card">
+        <Empty icon={Bug} title="Brak zgłoszeń">
+          Członkowie zgłaszają problemy przyciskiem „Zgłoś problem” w menu.
+        </Empty>
+      </div>
+    );
+  return (
+    <div className="card list">
+      {items.map((f) => (
+        <div key={f.id} className="list-item" style={{ alignItems: 'flex-start', opacity: f.resolved ? 0.55 : 1 }}>
+          <Avatar profile={f.author} size={34} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <b className="small">{f.author?.full_name || 'Usunięty użytkownik'}</b>{' '}
+            <span className="tiny muted">· {relTime(f.created_at)}</span>
+            <p className="small pre" style={{ marginTop: 4 }}>
+              {f.message}
+            </p>
+            {f.page && <div className="tiny muted truncate">{f.page}</div>}
+          </div>
+          <button
+            className={`btn btn-sm ${f.resolved ? 'btn-ghost' : 'btn-secondary'}`}
+            onClick={async () => {
+              try {
+                await api.resolveFeedback(f.id, !f.resolved);
+                load();
+              } catch (e) {
+                toast.error(e);
+              }
+            }}
+          >
+            <Check size={15} /> {f.resolved ? 'Przywróć' : 'Załatwione'}
+          </button>
         </div>
       ))}
     </div>

@@ -15,6 +15,8 @@ import EditProfile from './pages/EditProfile';
 import MyQr from './pages/MyQr';
 import Admin from './pages/Admin';
 import NotFound from './pages/NotFound';
+import Events from './pages/Events';
+import EventDetail from './pages/EventDetail';
 
 function Gate() {
   const { loading, session, profile, perms, recovery } = useAuth();
@@ -52,6 +54,8 @@ function Gate() {
         <Route path="spotkania/:id" element={<MeetingDetail />} />
         <Route path="spotkania/:id/skaner" element={<Scanner />} />
         <Route path="czlonkowie" element={<Members />} />
+        <Route path="wydarzenia" element={<Events />} />
+        <Route path="wydarzenia/:id" element={<EventDetail />} />
         <Route path="u/:id" element={<Profile />} />
         <Route path="ja/edytuj" element={<EditProfile />} />
         <Route path="moj-qr" element={<MyQr />} />

@@ -55,6 +55,16 @@ export function AuthProvider({ children }) {
 
   const perms = useMemo(() => computePerms(profile), [profile]);
 
+  // ostatnia aktywność (do statystyk w panelu) – najwyżej raz na godzinę
+  useEffect(() => {
+    if (!profile?.id) return;
+    const k = 'kulturka-seen-' + profile.id;
+    const last = +localStorage.getItem(k) || 0;
+    if (Date.now() - last < 3600e3) return;
+    localStorage.setItem(k, String(Date.now()));
+    api.touchSeen?.().catch?.(() => {});
+  }, [profile?.id]);
+
   const refreshCounts = useCallback(async () => {
     if (!perms.active) return;
     try {

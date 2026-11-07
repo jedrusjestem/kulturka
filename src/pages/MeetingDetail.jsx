@@ -35,6 +35,7 @@ export default function MeetingDetail() {
   const [q, setQ] = useState('');
   const [edit, setEdit] = useState(false);
   const [access, setAccess] = useState([]);
+  const [eventInfo, setEventInfo] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -47,12 +48,21 @@ export default function MeetingDetail() {
       setM(meeting);
       setAtt(a);
       setAccess(acc);
-      setPeople(p.filter((x) => isMemberRole(x.role)));
+      if (meeting?.event_id) {
+        // spotkanie wydarzenia: lista obecności = zespół wydarzenia
+        const [team, ev] = await Promise.all([api.listEventMembers(meeting.event_id), api.getEvent(meeting.event_id)]);
+        setEventInfo({ event: ev, team, mine: team.find((t) => t.user_id === profile.id) || null });
+        const ids = new Set(team.filter((t) => t.status === 'accepted').map((t) => t.user_id));
+        setPeople(p.filter((x) => ids.has(x.id) && isMemberRole(x.role)));
+      } else {
+        setEventInfo(null);
+        setPeople(p.filter((x) => isMemberRole(x.role)));
+      }
     } catch (e) {
       toast.error(e);
       setM(null);
     }
-  }, [id, toast]);
+  }, [id, toast, profile.id]);
 
   useEffect(() => {
     load();
@@ -97,13 +107,21 @@ export default function MeetingDetail() {
 
   const mine = attMap[profile.id];
   const isPast = new Date(m.starts_at) < new Date();
-  const mp = meetingPerms(profile, perms, m, access);
+  const mp = meetingPerms(profile, perms, m, access, eventInfo?.mine);
 
   return (
     <>
-      <Link to="/spotkania" className="row small muted" style={{ marginBottom: 14, gap: 4 }}>
-        <ArrowLeft size={16} /> Spotkania
+      <Link to={eventInfo?.event ? `/wydarzenia/${eventInfo.event.id}` : '/spotkania'} className="row small muted" style={{ marginBottom: 14, gap: 4 }}>
+        <ArrowLeft size={16} /> {eventInfo?.event ? eventInfo.event.name : 'Spotkania'}
       </Link>
+      {eventInfo?.event && (
+        <div className="alert" style={{ marginBottom: 14, borderColor: eventInfo.event.color }}>
+          <span className="color-dot" style={{ background: eventInfo.event.color, marginTop: 4 }} />
+          <div className="small">
+            Spotkanie wydarzenia <b>{eventInfo.event.name}</b> – widzi je tylko zespół wydarzenia, obecność sprawdza sztab.
+          </div>
+        </div>
+      )}
 
       <div className="card card-pad" style={{ marginBottom: 18 }}>
         <div className="row" style={{ alignItems: 'flex-start', gap: 16 }}>
@@ -122,12 +140,12 @@ export default function MeetingDetail() {
               )}
             </div>
           </div>
-          {(mp.edit || perms.manageMeetings) && (
+          {(mp.edit || mp.del) && (
             <div className="row" style={{ gap: 6 }}>
               <button className="btn btn-ghost btn-icon btn-sm" style={{ width: 34, height: 34 }} onClick={() => setEdit(true)} aria-label="Edytuj">
                 <Pencil size={17} />
               </button>
-              {perms.manageMeetings && (
+              {mp.del && (
               <button
                 className="btn btn-ghost btn-icon btn-sm"
                 style={{ width: 34, height: 34 }}
@@ -193,7 +211,7 @@ export default function MeetingDetail() {
         )}
       </div>
 
-      {perms.board && <RoleAccess meetingId={m.id} access={access} onChange={load} />}
+      {(m.event_id ? mp.del : perms.board) && <RoleAccess meetingId={m.id} access={access} onChange={load} />}
 
       {!mp.scan ? (
         <div className={`alert ${mine?.present ? 'alert-success' : ''}`}>

@@ -61,7 +61,7 @@ export default function EditProfile() {
     if (!f.full_name.trim()) return toast.error('Podaj imię i nazwisko');
     setBusy(true);
     try {
-      const fields = ['full_name', 'faculty', 'study_field', 'study_year', 'bio', 'phone', 'instagram', 'facebook', 'show_email', 'show_phone', 'avatar_url'];
+      const fields = ['full_name', 'faculty', 'study_field', 'study_year', 'bio', 'phone', 'instagram', 'facebook', 'show_email', 'show_phone', 'avatar_url', 'notify_email'];
       const patch = Object.fromEntries(fields.map((k) => [k, typeof f[k] === 'string' ? f[k].trim() : f[k]]));
       const updated = await api.updateProfile(f.id, patch);
       if (!editingOther) setProfile(updated);
@@ -166,6 +166,12 @@ export default function EditProfile() {
             <span>Pokazuj mój telefon innym członkom</span>
           </label>
           <p className="hint">Zarząd zawsze widzi dane kontaktowe członków.</p>
+          <label className="check">
+            <input type="checkbox" checked={f.notify_email ?? true} onChange={set('notify_email')} />
+            <span>
+              Wysyłaj mi powiadomienia e-mail (zatwierdzenie konta, ważne ogłoszenia, przyjęcie do wydarzenia, przypomnienia o spotkaniach)
+            </span>
+          </label>
         </div>
 
         <div className="row" style={{ justifyContent: 'flex-end' }}>
