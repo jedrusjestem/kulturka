@@ -1,0 +1,21 @@
+# Zapasowy "budzik" dla Supabase (darmowy projekt jest pauzowany po 7 dniach bez ruchu).
+# Główny keep-alive robi skrypt Google Apps Script co 5 minut – to jest drugie zabezpieczenie.
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: '17 6 */2 * *' # co 2 dni rano
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Zapytanie do bazy
+        env:
+          URL: ${{ secrets.VITE_SUPABASE_URL }}
+          KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$URL" ]; then echo "Brak sekretów – pomijam"; exit 0; fi
+          curl -sf -X POST "$URL/rest/v1/rpc/get_public_settings" \
+            -H "apikey: $KEY" -H "Content-Type: application/json" -d '{}'
