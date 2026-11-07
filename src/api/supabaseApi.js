@@ -180,6 +180,23 @@ export function createSupabaseApi(url, anonKey) {
       check(await sb.from('meetings').delete().eq('id', id));
     },
 
+    async listMeetingAccess(meetingId) {
+      return check(await sb.from('meeting_role_access').select('*, role:custom_roles(*)').eq('meeting_id', meetingId));
+    },
+    async setMeetingAccess(meetingId, roleId, { can_edit, can_scan }) {
+      check(
+        await sb
+          .from('meeting_role_access')
+          .upsert(
+            { meeting_id: meetingId, role_id: roleId, can_edit, can_scan, granted_by: await uid() },
+            { onConflict: 'meeting_id,role_id' }
+          )
+      );
+    },
+    async removeMeetingAccess(meetingId, roleId) {
+      check(await sb.from('meeting_role_access').delete().eq('meeting_id', meetingId).eq('role_id', roleId));
+    },
+
     // ---------- attendance ----------
     async listAttendance(meetingId) {
       return check(await sb.from('attendance').select('*').eq('meeting_id', meetingId));

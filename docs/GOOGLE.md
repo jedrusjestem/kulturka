@@ -37,6 +37,15 @@ Po chwili w folderze pojawią się agendy i arkusze, a w aplikacji przy spotkani
 
 Utwórz dokument Google Docs z własnym wyglądem i znacznikami: `{{TYTUL}}`, `{{DATA}}`, `{{GODZINA}}`, `{{MIEJSCE}}`, `{{OPIS}}`. Wklej jego link w ustawieniach („Szablon agendy”). Skrypt będzie robił kopie tego dokumentu.
 
+### Udostępnianie agend do edycji (opcjonalnie)
+
+W *Panel zarządu → Google i ustawienia* można włączyć „Udostępniaj agendy do edycji”. Skrypt dodaje wtedy jako edytorów agendy:
+zarząd, przewodniczącego, administratora, osoby z rolą tymczasową, której zarząd nadał na stronie spotkania dostęp „Edycja”,
+oraz autora spotkania z uprawnieniem „Edytuje swoje treści”. Działa tylko dla adresów e-mail powiązanych z kontem Google –
+pozostałe są pomijane (widać to w logach skryptu).
+
+> Po aktualizacji aplikacji wklej ponownie cały `Code.gs` do edytora Apps Script i zapisz (wdrożenie aktualizuje się samo przy kolejnym uruchomieniu wyzwalacza; adres web app się nie zmienia, jeśli w *Wdróż → Zarządzaj wdrożeniami* wybierzesz edycję istniejącego wdrożenia i „Nowa wersja”).
+
 ### Zmiana folderu
 
 Osoba uprawniona (przewodniczący) może w każdej chwili podać nowy folder w ustawieniach – nowe pliki będą trafiać tam. Stare zostają w poprzednim folderze.

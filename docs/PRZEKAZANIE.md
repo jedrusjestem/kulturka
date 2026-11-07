@@ -5,6 +5,19 @@
 - **Przewodniczący** – funkcja w komisji: pełne uprawnienia (role, ustawienia, akceptacje). Zmienia się co kadencję.
 - **Administrator** – techniczny opiekun aplikacji: ma wszystko, co przewodniczący, a dodatkowo tylko on nadaje i odbiera rolę administratora. Przewodniczący nie może odebrać roli administratorowi. Musi zawsze zostać co najmniej jeden administrator.
 - Rolę administratora istniejącemu kontu nadasz plikiem `supabase/nadaj-admina.sql` (Supabase → SQL Editor).
+- Administrator **nie jest liczony jako członek**: nie ma go na liście członków, w listach obecności ani w statystykach.
+
+## Role tymczasowe – uprawnienia
+
+- **Publikuje w „Ważne”** bez akceptacji zarządu.
+- **Sprawdza obecność** na wszystkich spotkaniach.
+- **Tworzy i edytuje wszystkie spotkania.**
+- **Edytuje swoje treści** także po akceptacji: własne ogłoszenia (pozostają opublikowane) i spotkania, które utworzył.
+- **Dostęp do jednego spotkania**: na stronie spotkania zarząd w sekcji „Dostęp ról” wybiera rolę i zaznacza „Edycja” i/lub „Obecność”.
+
+## Aktualizacja bazy po zmianach w aplikacji
+
+Gdy w repozytorium zmieni się `supabase/schema.sql`, wklej go **w całości** w Supabase → SQL Editor i uruchom. Skrypt jest bezpieczny do ponownego uruchamiania – nie kasuje danych.
 
 ## Co roku przy zmianie zarządu (checklista)
 

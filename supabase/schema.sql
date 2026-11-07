@@ -23,6 +23,8 @@ create table if not exists public.app_settings (
   updated_at            timestamptz not null default now()
 );
 insert into public.app_settings (id) values (1) on conflict (id) do nothing;
+-- udostępnianie agend (Google Docs) do edycji osobom z uprawnieniami do spotkania
+alter table public.app_settings add column if not exists share_agendas boolean not null default false;
 
 -- ---------------------------------------------------------------------
 --  Profile użytkowników
@@ -75,6 +77,8 @@ create table if not exists public.custom_roles (
   created_by            uuid references public.profiles (id) on delete set null,
   created_at            timestamptz not null default now()
 );
+-- edytuje własne treści (ogłoszenia, spotkania) także po akceptacji / publikacji
+alter table public.custom_roles add column if not exists can_edit_own boolean not null default false;
 
 create table if not exists public.custom_role_assignments (
   id          uuid primary key default gen_random_uuid(),
@@ -133,6 +137,17 @@ create table if not exists public.attendance (
   primary key (meeting_id, user_id)
 );
 
+-- Dostęp roli tymczasowej do KONKRETNEGO spotkania (nadaje zarząd)
+create table if not exists public.meeting_role_access (
+  meeting_id  uuid not null references public.meetings (id) on delete cascade,
+  role_id     uuid not null references public.custom_roles (id) on delete cascade,
+  can_edit    boolean not null default true,    -- edycja spotkania i jego agendy
+  can_scan    boolean not null default false,   -- sprawdzanie obecności na tym spotkaniu
+  granted_by  uuid references public.profiles (id) on delete set null,
+  created_at  timestamptz not null default now(),
+  primary key (meeting_id, role_id)
+);
+
 -- ---------------------------------------------------------------------
 --  Dziennik zmian (audyt)
 -- ---------------------------------------------------------------------
@@ -189,10 +204,33 @@ language sql stable security definer set search_path = public as $$
               when 'post_important'  then r.can_post_important
               when 'scan'            then r.can_scan
               when 'manage_meetings' then r.can_manage_meetings
+              when 'edit_own'        then r.can_edit_own
               else false
             end
     )
   )
+$$;
+
+-- p: 'edit' | 'scan' – uprawnienie do konkretnego spotkania
+create or replace function public.has_meeting_perm(p_meeting uuid, p text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select
+    public.has_perm(case p when 'edit' then 'manage_meetings' else 'scan' end)
+    or (
+      public.is_active_member() and exists (
+        select 1
+        from public.meeting_role_access mra
+        join public.custom_role_assignments a on a.role_id = mra.role_id
+        where mra.meeting_id = p_meeting
+          and a.user_id = auth.uid()
+          and (a.expires_at is null or a.expires_at > now())
+          and case p when 'edit' then mra.can_edit when 'scan' then mra.can_scan else false end
+      )
+    )
+    or (
+      p = 'edit' and public.has_perm('edit_own')
+      and exists (select 1 from public.meetings m where m.id = p_meeting and m.created_by = auth.uid())
+    )
 $$;
 
 create or replace function public.log_action(p_action text, p_target uuid, p_details jsonb default '{}'::jsonb)
@@ -372,6 +410,17 @@ drop trigger if exists attendance_touch on public.attendance;
 create trigger attendance_touch before insert or update or delete on public.attendance
   for each row execute function public.attendance_touch();
 
+create or replace function public.mra_touch() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  update public.meetings set dirty = true where id = coalesce(new.meeting_id, old.meeting_id);
+  return coalesce(new, old);
+end $$;
+
+drop trigger if exists mra_touch on public.meeting_role_access;
+create trigger mra_touch after insert or update or delete on public.meeting_role_access
+  for each row execute function public.mra_touch();
+
 -- =====================================================================
 --  RPC: skanowanie QR obecności (weryfikacja po stronie serwera)
 --  Format kodu: KKP1.<user_uuid>.<okno_30s>.<hmac10>
@@ -389,8 +438,8 @@ declare
   v_prof    public.profiles;
   v_already boolean;
 begin
-  if not public.has_perm('scan') then
-    raise exception 'Brak uprawnień do sprawdzania obecności';
+  if not public.has_meeting_perm(p_meeting, 'scan') then
+    raise exception 'Brak uprawnień do sprawdzania obecności na tym spotkaniu';
   end if;
   if p_scanned_at > now() + interval '5 minutes' or p_scanned_at < now() - interval '7 days' then
     return jsonb_build_object('ok', false, 'error', 'Nieprawidłowy czas skanu');
@@ -419,8 +468,9 @@ begin
   end if;
 
   select * into v_prof from public.profiles where id = v_user;
-  if v_prof.role not in ('member', 'board', 'chair', 'admin') then
-    return jsonb_build_object('ok', false, 'error', 'Ta osoba nie jest aktywnym członkiem');
+  if v_prof.role not in ('member', 'board', 'chair') then
+    return jsonb_build_object('ok', false, 'error', case when v_prof.role = 'admin'
+      then 'Administrator nie jest liczony jako członek komisji' else 'Ta osoba nie jest aktywnym członkiem' end);
   end if;
   if not exists (select 1 from public.meetings where id = p_meeting) then
     return jsonb_build_object('ok', false, 'error', 'Nie ma takiego spotkania');
@@ -478,6 +528,7 @@ alter table public.announcements           enable row level security;
 alter table public.meetings                enable row level security;
 alter table public.attendance              enable row level security;
 alter table public.audit_log               enable row level security;
+alter table public.meeting_role_access     enable row level security;
 
 -- usuń stare polityki (pozwala ponownie uruchomić skrypt)
 do $$
@@ -520,20 +571,32 @@ create policy ann_read on public.announcements for select to authenticated using
 );
 create policy ann_insert on public.announcements for insert to authenticated with check (public.is_active_member());
 create policy ann_update on public.announcements for update to authenticated
-  using (public.is_board() or (author_id = auth.uid() and status = 'pending'))
+  using (
+    public.is_board()
+    or (author_id = auth.uid() and status = 'pending')
+    or (author_id = auth.uid() and status = 'published' and public.has_perm('edit_own'))
+  )
   with check (public.is_board() or author_id = auth.uid());
 create policy ann_delete on public.announcements for delete to authenticated
   using (public.is_board() or author_id = auth.uid());
 
 -- meetings
 create policy meet_read  on public.meetings for select to authenticated using (public.is_active_member());
-create policy meet_write on public.meetings for all to authenticated
-  using (public.has_perm('manage_meetings')) with check (public.has_perm('manage_meetings'));
+create policy meet_insert on public.meetings for insert to authenticated with check (public.has_perm('manage_meetings'));
+create policy meet_update on public.meetings for update to authenticated
+  using (public.has_meeting_perm(id, 'edit')) with check (public.has_meeting_perm(id, 'edit'));
+create policy meet_delete on public.meetings for delete to authenticated using (public.has_perm('manage_meetings'));
+
+-- dostęp ról do spotkań: widzą członkowie, nadaje zarząd
+create policy mra_read  on public.meeting_role_access for select to authenticated using (public.is_active_member());
+create policy mra_write on public.meeting_role_access for all to authenticated
+  using (public.is_board()) with check (public.is_board());
 
 -- attendance
-create policy att_read  on public.attendance for select to authenticated using (user_id = auth.uid() or public.has_perm('scan'));
+create policy att_read  on public.attendance for select to authenticated
+  using (user_id = auth.uid() or public.has_meeting_perm(meeting_id, 'scan'));
 create policy att_write on public.attendance for all to authenticated
-  using (public.has_perm('scan')) with check (public.has_perm('scan'));
+  using (public.has_meeting_perm(meeting_id, 'scan')) with check (public.has_meeting_perm(meeting_id, 'scan'));
 
 -- audit log
 create policy audit_read on public.audit_log for select to authenticated using (public.is_board());

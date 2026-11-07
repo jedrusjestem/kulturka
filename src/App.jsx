@@ -50,7 +50,7 @@ function Gate() {
         <Route path="wazne" element={<Important />} />
         <Route path="spotkania" element={<Meetings />} />
         <Route path="spotkania/:id" element={<MeetingDetail />} />
-        <Route path="spotkania/:id/skaner" element={perms.scan ? <Scanner /> : <Navigate to="/spotkania" replace />} />
+        <Route path="spotkania/:id/skaner" element={<Scanner />} />
         <Route path="czlonkowie" element={<Members />} />
         <Route path="u/:id" element={<Profile />} />
         <Route path="ja/edytuj" element={<EditProfile />} />

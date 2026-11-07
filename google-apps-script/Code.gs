@@ -69,11 +69,15 @@ function sync() {
 
     const people = sb('GET', "profiles?select=id,full_name,email,role&order=full_name") || [];
     let anyAttendanceChange = false;
+    const sharing = settings.share_agendas ? loadSharingData() : null;
 
     todo.forEach((m) => {
       const patch = {};
       if (m.auto_agenda && !m.agenda_url) {
         patch.agenda_url = createAgenda(m, folder, settings.agenda_template_id);
+      }
+      if (sharing && (patch.agenda_url || m.agenda_url)) {
+        shareAgenda(patch.agenda_url || m.agenda_url, agendaEditors(m, people, sharing));
       }
       if (m.dirty) {
         const att = sb('GET', 'attendance?select=*&meeting_id=eq.' + m.id) || [];
@@ -170,7 +174,7 @@ function writeAttendanceSheet(m, folder, people, att) {
 
   const attMap = {};
   att.forEach((a) => (attMap[a.user_id] = a));
-  const active = people.filter((p) => ['member', 'board', 'chair', 'admin'].indexOf(p.role) >= 0);
+  const active = people.filter((p) => ['member', 'board', 'chair'].indexOf(p.role) >= 0);
   // osoby, które mają wpis obecności, ale nie są już aktywne – też pokazujemy
   const extra = people.filter((p) => attMap[p.id] && active.indexOf(p) < 0);
   const list = active.concat(extra);
@@ -235,7 +239,7 @@ function writeSummary(folder, people) {
   const att = sb('GET', 'attendance?select=meeting_id,user_id,present') || [];
   const map = {};
   att.forEach((a) => (map[a.meeting_id + '|' + a.user_id] = a.present));
-  const active = people.filter((p) => ['member', 'board', 'chair', 'admin'].indexOf(p.role) >= 0);
+  const active = people.filter((p) => ['member', 'board', 'chair'].indexOf(p.role) >= 0);
 
   const header = ['Imię i nazwisko'].concat(meetings.map((m) => Utilities.formatDate(new Date(m.starts_at), TZ, 'dd.MM') + ' ' + m.title), ['Obecności', 'Frekwencja']);
   const rows = active.map((p) => {
@@ -259,6 +263,61 @@ function writeSummary(folder, people) {
   sh.setFrozenRows(1);
   sh.setFrozenColumns(1);
   sh.autoResizeColumn(1);
+}
+
+// ---------------------------------------------------------------------------
+//  Udostępnianie agend do edycji (opcja „share_agendas” w ustawieniach aplikacji)
+// ---------------------------------------------------------------------------
+function loadSharingData() {
+  const now = new Date().toISOString();
+  return {
+    access: sb('GET', 'meeting_role_access?select=meeting_id,role_id,can_edit&can_edit=eq.true') || [],
+    assignments: sb('GET', 'custom_role_assignments?select=user_id,role_id,expires_at,role:custom_roles(can_edit_own,can_manage_meetings)') || [],
+    now: now,
+  };
+}
+
+/** Kto może edytować agendę: zarząd, przewodniczący, admin + role z dostępem do spotkania + autor (edycja własnych). */
+function agendaEditors(m, people, sharing) {
+  const active = (a) => !a.expires_at || a.expires_at > sharing.now;
+  const byId = {};
+  people.forEach((p) => (byId[p.id] = p));
+  const ids = {};
+  people.filter((p) => ['board', 'chair', 'admin'].indexOf(p.role) >= 0).forEach((p) => (ids[p.id] = 1));
+  const roleIds = sharing.access.filter((x) => x.meeting_id === m.id).map((x) => x.role_id);
+  sharing.assignments.forEach((a) => {
+    if (!active(a)) return;
+    if (roleIds.indexOf(a.role_id) >= 0) ids[a.user_id] = 1;
+    if (a.role && a.role.can_manage_meetings) ids[a.user_id] = 1;
+    if (a.role && a.role.can_edit_own && a.user_id === m.created_by) ids[a.user_id] = 1;
+  });
+  return Object.keys(ids)
+    .map((id) => byId[id])
+    .filter((p) => p && ['member', 'board', 'chair', 'admin'].indexOf(p.role) >= 0)
+    .map((p) => p.email);
+}
+
+function shareAgenda(url, emails) {
+  const m = String(url).match(/\/d\/([\w-]{10,})/);
+  if (!m) return;
+  let file;
+  try {
+    file = DriveApp.getFileById(m[1]);
+  } catch (e) {
+    return; // brak dostępu do pliku (np. wklejony cudzy dokument)
+  }
+  const current = {};
+  try {
+    file.getEditors().forEach((u) => (current[u.getEmail().toLowerCase()] = 1));
+  } catch (e) {}
+  emails.forEach((email) => {
+    if (!email || current[email.toLowerCase()]) return;
+    try {
+      file.addEditor(email);
+    } catch (e) {
+      console.log('Nie można udostępnić ' + email + ' (brak konta Google?): ' + e.message);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

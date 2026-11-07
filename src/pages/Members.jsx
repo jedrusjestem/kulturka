@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Search, Users } from 'lucide-react';
 import { api } from '../api';
 import { Avatar, CustomRoleBadges, Empty, RoleBadge, Spinner } from '../components/ui';
-import { ROLE_ORDER, isActiveRole } from '../lib/perms';
+import { ROLE_ORDER, isMemberRole } from '../lib/perms';
 import { normalize } from '../lib/format';
 
 export default function Members() {
@@ -19,7 +19,7 @@ export default function Members() {
     if (!people) return [];
     const nq = normalize(q.trim());
     return people
-      .filter((p) => (filter === 'alumni' ? p.role === 'alumni' : isActiveRole(p.role)))
+      .filter((p) => (filter === 'alumni' ? p.role === 'alumni' : isMemberRole(p.role)))
       .filter((p) => filter !== 'board' || ['board', 'chair'].includes(p.role))
       .filter((p) => {
         if (!nq) return true;

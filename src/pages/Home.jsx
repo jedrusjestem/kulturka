@@ -5,7 +5,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, Empty, gear, CustomRoleBadges } from '../components/ui';
 import { fmtTime, fmtWeekday, relTime, sameDay } from '../lib/format';
-import { isActiveRole } from '../lib/perms';
+import { isMemberRole } from '../lib/perms';
 
 export function DateChip({ date }) {
   const d = new Date(date);
@@ -41,7 +41,7 @@ export default function HomePage() {
   const attended = past.filter((m) => data.myAtt.some((a) => a.meeting_id === m.id && a.present)).length;
   const pct = past.length ? Math.round((attended / past.length) * 100) : null;
   const published = data?.anns.filter((a) => a.status === 'published').slice(0, 3) || [];
-  const members = data?.people.filter((p) => isActiveRole(p.role)) || [];
+  const members = data?.people.filter((p) => isMemberRole(p.role)) || [];
   const today = upcoming.find((m) => sameDay(m.starts_at, new Date()));
 
   return (

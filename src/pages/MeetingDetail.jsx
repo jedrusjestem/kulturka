@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Clock, MapPin, FileText, Sheet, Pencil, Trash2, ScanLine, Check, X, Search, Download, RefreshCw, CloudOff, Cloud, Users,
+  ArrowLeft, Clock, MapPin, FileText, Sheet, Pencil, Trash2, ScanLine, Check, X, Search, Download, RefreshCw, CloudOff, Cloud, Users, KeyRound, Plus,
 } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { Avatar, Empty, Spinner, useConfirm, useToast } from '../components/ui';
+import { Avatar, Empty, Spinner, hexA, useConfirm, useToast } from '../components/ui';
 import { MeetingForm } from './Meetings';
 import { DateChip } from './Home';
 import { fmtDate, fmtTime, fmtWeekday, normalize, relTime } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
-import { isActiveRole } from '../lib/perms';
+import { isMemberRole, meetingPerms } from '../lib/perms';
 
 export async function requestSync() {
   try {
@@ -34,18 +34,25 @@ export default function MeetingDetail() {
   const [people, setPeople] = useState([]);
   const [q, setQ] = useState('');
   const [edit, setEdit] = useState(false);
+  const [access, setAccess] = useState([]);
 
   const load = useCallback(async () => {
     try {
-      const [meeting, a, p] = await Promise.all([api.getMeeting(id), api.listAttendance(id), perms.scan ? api.listProfiles() : []]);
+      const [meeting, a, p, acc] = await Promise.all([
+        api.getMeeting(id),
+        api.listAttendance(id),
+        api.listProfiles(),
+        api.listMeetingAccess(id).catch(() => []),
+      ]);
       setM(meeting);
       setAtt(a);
-      setPeople(p.filter((x) => isActiveRole(x.role)));
+      setAccess(acc);
+      setPeople(p.filter((x) => isMemberRole(x.role)));
     } catch (e) {
       toast.error(e);
       setM(null);
     }
-  }, [id, perms.scan, toast]);
+  }, [id, toast]);
 
   useEffect(() => {
     load();
@@ -90,6 +97,7 @@ export default function MeetingDetail() {
 
   const mine = attMap[profile.id];
   const isPast = new Date(m.starts_at) < new Date();
+  const mp = meetingPerms(profile, perms, m, access);
 
   return (
     <>
@@ -114,11 +122,12 @@ export default function MeetingDetail() {
               )}
             </div>
           </div>
-          {perms.manageMeetings && (
+          {(mp.edit || perms.manageMeetings) && (
             <div className="row" style={{ gap: 6 }}>
               <button className="btn btn-ghost btn-icon btn-sm" style={{ width: 34, height: 34 }} onClick={() => setEdit(true)} aria-label="Edytuj">
                 <Pencil size={17} />
               </button>
+              {perms.manageMeetings && (
               <button
                 className="btn btn-ghost btn-icon btn-sm"
                 style={{ width: 34, height: 34 }}
@@ -137,6 +146,7 @@ export default function MeetingDetail() {
               >
                 <Trash2 size={17} />
               </button>
+              )}
             </div>
           )}
         </div>
@@ -155,13 +165,13 @@ export default function MeetingDetail() {
               <FileText size={13} /> {m.auto_agenda ? 'Agenda zostanie utworzona automatycznie' : 'Brak agendy'}
             </span>
           )}
-          {perms.scan && m.sheet_url && (
+          {mp.scan && m.sheet_url && (
             <a className="btn btn-ghost" href={m.sheet_url} target="_blank" rel="noopener noreferrer">
               <Sheet size={17} /> Lista obecności (Arkusz)
             </a>
           )}
         </div>
-        {perms.scan && (
+        {mp.scan && (
           <div className="row row-wrap small muted" style={{ marginTop: 14, gap: 8, paddingTop: 14, borderTop: '1px solid var(--gray-100)' }}>
             <span className="row" style={{ gap: 6, flex: '1 1 220px', alignItems: 'flex-start' }}>
               {m.dirty ? <CloudOff size={15} style={{ flexShrink: 0, marginTop: 2 }} /> : <Cloud size={15} color="var(--success)" style={{ flexShrink: 0, marginTop: 2 }} />}
@@ -183,7 +193,9 @@ export default function MeetingDetail() {
         )}
       </div>
 
-      {!perms.scan ? (
+      {perms.board && <RoleAccess meetingId={m.id} access={access} onChange={load} />}
+
+      {!mp.scan ? (
         <div className={`alert ${mine?.present ? 'alert-success' : ''}`}>
           {mine?.present ? <Check size={18} /> : <Users size={18} />}
           {mine?.present
@@ -262,5 +274,102 @@ export default function MeetingDetail() {
         />
       )}
     </>
+  );
+}
+
+/** Zarząd nadaje roli tymczasowej dostęp do TEGO spotkania (edycja i/lub obecność). */
+function RoleAccess({ meetingId, access, onChange }) {
+  const toast = useToast();
+  const [roles, setRoles] = useState([]);
+  const [pick, setPick] = useState('');
+  useEffect(() => {
+    api.listCustomRoles().then(setRoles).catch(() => {});
+  }, []);
+  const free = roles.filter((r) => !access.some((a) => a.role_id === r.id));
+
+  const save = async (roleId, patch) => {
+    const cur = access.find((a) => a.role_id === roleId) || { can_edit: true, can_scan: false };
+    try {
+      await api.setMeetingAccess(meetingId, roleId, { can_edit: cur.can_edit, can_scan: cur.can_scan, ...patch });
+      onChange();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+
+  return (
+    <div className="card" style={{ marginBottom: 18 }}>
+      <div className="card-head">
+        <div>
+          <h2 className="row" style={{ gap: 8 }}>
+            <KeyRound size={18} /> Dostęp ról
+          </h2>
+          <div className="small muted">Osoby z wybraną rolą tymczasową mogą edytować to spotkanie lub sprawdzać na nim obecność.</div>
+        </div>
+      </div>
+      <div>
+        {access.map((a) => (
+          <div key={a.role_id} className="att-row" style={{ gap: 10 }}>
+            <span className="badge truncate" style={{ background: hexA(a.role?.color, 0.14), minWidth: 0, flexShrink: 1 }}>
+              <span className="color-dot" style={{ background: a.role?.color, width: 8, height: 8 }} />
+              {a.role?.name}
+            </span>
+            <div className="spacer" />
+            <label className="check small" style={{ alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <input type="checkbox" checked={a.can_edit} onChange={(e) => save(a.role_id, { can_edit: e.target.checked })} />
+              Edycja
+            </label>
+            <label className="check small" style={{ alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <input type="checkbox" checked={a.can_scan} onChange={(e) => save(a.role_id, { can_scan: e.target.checked })} />
+              Obecność
+            </label>
+            <button
+              className="btn btn-ghost btn-icon btn-sm"
+              style={{ width: 32, height: 32, flexShrink: 0 }}
+              aria-label="Usuń dostęp"
+              onClick={async () => {
+                try {
+                  await api.removeMeetingAccess(meetingId, a.role_id);
+                  onChange();
+                } catch (e) {
+                  toast.error(e);
+                }
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ))}
+        {access.length === 0 && <p className="small muted" style={{ padding: '12px 16px' }}>Żadna rola nie ma dodatkowego dostępu.</p>}
+      </div>
+      {roles.length === 0 ? (
+        <p className="small muted" style={{ padding: '0 16px 14px' }}>
+          Najpierw utwórz rolę tymczasową w Panelu zarządu → Role tymczasowe.
+        </p>
+      ) : (
+        free.length > 0 && (
+          <div className="row" style={{ padding: '4px 16px 16px' }}>
+            <select className="select" value={pick} onChange={(e) => setPick(e.target.value)} style={{ flex: 1 }}>
+              <option value="">— wybierz rolę —</option>
+              {free.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn btn-secondary"
+              disabled={!pick}
+              onClick={async () => {
+                await save(pick, { can_edit: true, can_scan: true });
+                setPick('');
+              }}
+            >
+              <Plus size={16} /> Dodaj
+            </button>
+          </div>
+        )
+      )}
+    </div>
   );
 }

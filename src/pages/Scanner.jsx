@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import QrScanner from 'qr-scanner';
 import { ArrowLeft, CheckCircle2, XCircle, WifiOff, CameraOff, Keyboard, SwitchCamera, CloudUpload } from 'lucide-react';
 import { api } from '../api';
+import { useAuth } from '../auth';
+import { meetingPerms } from '../lib/perms';
 import { Avatar, useToast } from '../components/ui';
 import { fmtTime } from '../lib/format';
 
@@ -40,10 +42,17 @@ export default function Scanner() {
   const [manual, setManual] = useState(false);
   const [code, setCode] = useState('');
   const [online, setOnline] = useState(navigator.onLine);
+  const { profile, perms } = useAuth();
+  const [allowed, setAllowed] = useState(perms.scan ? true : null);
 
   useEffect(() => {
-    api.getMeeting(id).then(setMeeting).catch(() => {});
-  }, [id]);
+    Promise.all([api.getMeeting(id), api.listMeetingAccess(id).catch(() => [])])
+      .then(([m, acc]) => {
+        setMeeting(m);
+        setAllowed(meetingPerms(profile, perms, m, acc).scan);
+      })
+      .catch(() => setAllowed(false));
+  }, [id, profile, perms]);
 
   const pushResult = (r) => setResults((list) => [{ ...r, at: new Date().toISOString(), key: Math.random() }, ...list].slice(0, 20));
 
@@ -132,7 +141,7 @@ export default function Scanner() {
   }, [flush]);
 
   useEffect(() => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || allowed !== true) return;
     const s = new QrScanner(videoRef.current, (res) => handle(res.data), {
       returnDetailedScanResult: true,
       preferredCamera: 'environment',
@@ -152,7 +161,7 @@ export default function Scanner() {
       s.stop();
       s.destroy();
     };
-  }, [handle]);
+  }, [handle, allowed]);
 
   const switchCam = async () => {
     try {
@@ -167,6 +176,18 @@ export default function Scanner() {
   };
 
   const okCount = results.filter((r) => r.ok && !r.offline).length;
+
+  if (allowed === false)
+    return (
+      <div className="card card-pad center stack" style={{ maxWidth: 480, margin: '0 auto', alignItems: 'center' }}>
+        <CameraOff size={40} className="muted" />
+        <h2>Brak uprawnień do skanera</h2>
+        <p className="muted small">Obecność na tym spotkaniu sprawdza zarząd albo osoby z rolą, której zarząd nadał dostęp.</p>
+        <Link to={`/spotkania/${id}`} className="btn btn-secondary">
+          Wróć do spotkania
+        </Link>
+      </div>
+    );
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>

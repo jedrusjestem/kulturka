@@ -237,17 +237,30 @@ const isActive = (u) => u && ['member', 'board', 'chair', 'admin'].includes(u.ro
 const isBoard = (u) => u && ['board', 'chair', 'admin'].includes(u.role);
 const isChair = (u) => u && ['chair', 'admin'].includes(u.role);
 const isAdmin = (u) => u && u.role === 'admin';
+const isMember = (u) => u && ['member', 'board', 'chair'].includes(u.role);
 const count = (role) => db.users.filter((x) => x.role === role).length;
 function hasPerm(u, p) {
   if (isBoard(u)) return true;
   if (!isActive(u)) return false;
-  const field = { post_important: 'can_post_important', scan: 'can_scan', manage_meetings: 'can_manage_meetings' }[p];
+  const field = { post_important: 'can_post_important', scan: 'can_scan', manage_meetings: 'can_manage_meetings', edit_own: 'can_edit_own' }[p];
   return db.assignments.some((a) => {
     if (a.user_id !== u.id) return false;
     if (a.expires_at && new Date(a.expires_at) < new Date()) return false;
     const r = db.roles.find((x) => x.id === a.role_id);
     return r && r[field];
   });
+}
+function activeRoleIds(u) {
+  return db.assignments.filter((a) => a.user_id === u.id && (!a.expires_at || new Date(a.expires_at) > new Date())).map((a) => a.role_id);
+}
+function hasMeetingPerm(u, meetingId, p) {
+  if (hasPerm(u, p === 'edit' ? 'manage_meetings' : 'scan')) return true;
+  if (!isActive(u)) return false;
+  const ids = activeRoleIds(u);
+  if ((db.meetingAccess || []).some((x) => x.meeting_id === meetingId && ids.includes(x.role_id) && (p === 'edit' ? x.can_edit : x.can_scan)))
+    return true;
+  const m = db.meetings.find((x) => x.id === meetingId);
+  return p === 'edit' && hasPerm(u, 'edit_own') && m?.created_by === u.id;
 }
 function deny(cond, msg = 'Brak uprawnień') {
   if (!cond) throw new Error(msg);
@@ -515,7 +528,7 @@ export function createDemoApi() {
     async updateAnnouncement(id, patch) {
       const u = me();
       const a = db.announcements.find((x) => x.id === id);
-      deny(isBoard(u) || (a.author_id === u.id && a.status === 'pending'));
+      deny(isBoard(u) || (a.author_id === u.id && (a.status === 'pending' || (a.status === 'published' && hasPerm(u, 'edit_own')))));
       if (!isBoard(u)) {
         delete patch.status;
         delete patch.pinned;
@@ -546,13 +559,14 @@ export function createDemoApi() {
     },
     async saveMeeting(m) {
       await delay();
-      deny(hasPerm(me(), 'manage_meetings'));
       if (m.id) {
+        deny(hasMeetingPerm(me(), m.id, 'edit'));
         const x = db.meetings.find((y) => y.id === m.id);
         Object.assign(x, m, { dirty: true, updated_at: now() });
         save();
         return x;
       }
+      deny(hasPerm(me(), 'manage_meetings'));
       const x = {
         ...m,
         id: uuid(),
@@ -572,24 +586,42 @@ export function createDemoApi() {
       deny(hasPerm(me(), 'manage_meetings'));
       db.meetings = db.meetings.filter((m) => m.id !== id);
       db.attendance = db.attendance.filter((a) => a.meeting_id !== id);
+      db.meetingAccess = (db.meetingAccess || []).filter((x) => x.meeting_id !== id);
+      save();
+    },
+    async listMeetingAccess(meetingId) {
+      return (db.meetingAccess || [])
+        .filter((x) => x.meeting_id === meetingId)
+        .map((x) => ({ ...x, role: db.roles.find((r) => r.id === x.role_id) }))
+        .filter((x) => x.role);
+    },
+    async setMeetingAccess(meetingId, roleId, { can_edit, can_scan }) {
+      deny(isBoard(me()));
+      db.meetingAccess = (db.meetingAccess || []).filter((x) => !(x.meeting_id === meetingId && x.role_id === roleId));
+      db.meetingAccess.push({ meeting_id: meetingId, role_id: roleId, can_edit, can_scan, granted_by: me().id, created_at: now() });
+      save();
+    },
+    async removeMeetingAccess(meetingId, roleId) {
+      deny(isBoard(me()));
+      db.meetingAccess = (db.meetingAccess || []).filter((x) => !(x.meeting_id === meetingId && x.role_id === roleId));
       save();
     },
 
     // ---------- attendance ----------
     async listAttendance(meetingId) {
       const u = me();
-      return db.attendance.filter((a) => a.meeting_id === meetingId && (a.user_id === u.id || hasPerm(u, 'scan')));
+      return db.attendance.filter((a) => a.meeting_id === meetingId && (a.user_id === u.id || hasMeetingPerm(u, meetingId, 'scan')));
     },
     async listMyAttendance() {
       return db.attendance.filter((a) => a.user_id === sessionUserId());
     },
     async listAllAttendance() {
-      deny(hasPerm(me(), 'scan'));
-      return [...db.attendance];
+      const u = me();
+      return db.attendance.filter((a) => hasMeetingPerm(u, a.meeting_id, 'scan'));
     },
     async setAttendance(meetingId, userId, present) {
       await delay(60);
-      deny(hasPerm(me(), 'scan'), 'Brak uprawnień do sprawdzania obecności');
+      deny(hasMeetingPerm(me(), meetingId, 'scan'), 'Brak uprawnień do sprawdzania obecności');
       db.attendance = db.attendance.filter((a) => !(a.meeting_id === meetingId && a.user_id === userId));
       if (present !== null)
         db.attendance.push({ meeting_id: meetingId, user_id: userId, present, method: 'manual', marked_by: me().id, marked_at: now() });
@@ -598,7 +630,7 @@ export function createDemoApi() {
     },
     async scanAttendance(meetingId, payload, scannedAt) {
       await delay(80);
-      deny(hasPerm(me(), 'scan'), 'Brak uprawnień do sprawdzania obecności');
+      deny(hasMeetingPerm(me(), meetingId, 'scan'), 'Brak uprawnień do sprawdzania obecności na tym spotkaniu');
       const p = parsePayload(payload);
       if (!p) return { ok: false, error: 'To nie jest kod obecności Kulturki' };
       const scanW = currentWindow(new Date(scannedAt || Date.now()).getTime());
@@ -608,7 +640,8 @@ export function createDemoApi() {
       if (!secret || (await hmacHex(secret, String(p.window))).slice(0, 10) !== p.code)
         return { ok: false, error: 'Nieprawidłowy kod' };
       const u = db.users.find((x) => x.id === p.userId);
-      if (!isActive(u)) return { ok: false, error: 'Ta osoba nie jest aktywnym członkiem' };
+      if (isAdmin(u)) return { ok: false, error: 'Administrator nie jest liczony jako członek komisji' };
+      if (!isMember(u)) return { ok: false, error: 'Ta osoba nie jest aktywnym członkiem' };
       const prev = db.attendance.find((a) => a.meeting_id === meetingId && a.user_id === u.id);
       db.attendance = db.attendance.filter((a) => a !== prev);
       db.attendance.push({ meeting_id: meetingId, user_id: u.id, present: true, method: 'qr', marked_by: me().id, marked_at: now() });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Megaphone, Plus, Pin, PinOff, Check, X, Trash2, Clock, Info } from 'lucide-react';
+import { Megaphone, Plus, Pin, PinOff, Check, X, Trash2, Clock, Info, Pencil } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, Empty, Linkify, Modal, Spinner, useConfirm, useToast } from '../components/ui';
@@ -13,6 +13,7 @@ export default function Important() {
   const [items, setItems] = useState(null);
   const [tab, setTab] = useState('published');
   const [composer, setComposer] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -125,6 +126,12 @@ export default function Important() {
                       {a.pinned ? <PinOff size={16} /> : <Pin size={16} />} {a.pinned ? 'Odepnij' : 'Przypnij'}
                     </button>
                   )}
+                  {(perms.board ||
+                    (a.author_id === profile.id && (a.status === 'pending' || (a.status === 'published' && perms.editOwn)))) && (
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditing(a)}>
+                      <Pencil size={16} /> Edytuj
+                    </button>
+                  )}
                   <button
                     className="btn btn-ghost btn-sm"
                     onClick={async () => {
@@ -139,6 +146,19 @@ export default function Important() {
             </article>
           ))}
         </div>
+      )}
+
+      {editing && (
+        <Composer
+          initial={editing}
+          direct
+          onClose={() => setEditing(null)}
+          onDone={() => {
+            setEditing(null);
+            toast.success('Zapisano zmiany');
+            load();
+          }}
+        />
       )}
 
       {composer && (
@@ -158,15 +178,20 @@ export default function Important() {
   );
 }
 
-function Composer({ direct, onClose, onDone }) {
+function Composer({ direct, onClose, onDone, initial }) {
   const toast = useToast();
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [title, setTitle] = useState(initial?.title || '');
+  const [body, setBody] = useState(initial?.body || '');
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
+      if (initial) {
+        await api.updateAnnouncement(initial.id, { title: title.trim(), body: body.trim() });
+        onDone(initial.status);
+        return;
+      }
       const a = await api.createAnnouncement({ title: title.trim(), body: body.trim() });
       onDone(a?.status);
     } catch (err) {
@@ -176,7 +201,7 @@ function Composer({ direct, onClose, onDone }) {
   };
   return (
     <Modal
-      title="Nowe ogłoszenie"
+      title={initial ? 'Edytuj ogłoszenie' : 'Nowe ogłoszenie'}
       onClose={onClose}
       footer={
         <>
@@ -184,7 +209,7 @@ function Composer({ direct, onClose, onDone }) {
             Anuluj
           </button>
           <button className="btn btn-primary" form="ann-form" disabled={busy || !title.trim()}>
-            {direct ? 'Opublikuj' : 'Wyślij do akceptacji'}
+            {initial ? 'Zapisz' : direct ? 'Opublikuj' : 'Wyślij do akceptacji'}
           </button>
         </>
       }
@@ -197,7 +222,7 @@ function Composer({ direct, onClose, onDone }) {
         )}
         <div className="field">
           <label>Tytuł</label>
-          <input className="input" maxLength={140} required value={title} onChange={(e) => setTitle(e.target.value)} autoFocus />
+          <input className="input" maxLength={140} required value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
         <div className="field">
           <label>Treść</label>

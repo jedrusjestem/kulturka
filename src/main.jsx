@@ -27,6 +27,22 @@ document.addEventListener(
   },
   { passive: false }
 );
+// Po schowaniu klawiatury (iOS/Android) przywróć poprawne położenie widoku.
+document.addEventListener('focusout', (e) => {
+  if (!e.target.matches?.('input, textarea, select')) return;
+  setTimeout(() => {
+    if (document.activeElement?.matches?.('input, textarea, select')) return;
+    if (document.body.style.position !== 'fixed') window.scrollTo(window.scrollX, window.scrollY);
+    // reset ewentualnego przybliżenia
+    const meta = document.querySelector('meta[name=viewport]');
+    if (meta) {
+      const c = meta.content;
+      meta.content = c + ' ';
+      meta.content = c;
+    }
+  }, 120);
+});
+
 // Próba zablokowania orientacji (działa w zainstalowanej aplikacji PWA na Androidzie).
 try {
   screen.orientation?.lock?.('portrait').catch(() => {});

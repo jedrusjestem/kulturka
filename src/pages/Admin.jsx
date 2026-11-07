@@ -6,7 +6,7 @@ import {
 import { api, isDemo } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, CustomRoleBadges, Empty, Modal, RoleBadge, Spinner, hexA, useConfirm, useToast } from '../components/ui';
-import { ROLE_LABELS, ROLE_ORDER, activeAssignments, isActiveRole } from '../lib/perms';
+import { ROLE_LABELS, ROLE_ORDER, activeAssignments, isActiveRole, isMemberRole } from '../lib/perms';
 import { fmtDate, fmtDateTime, normalize, relTime } from '../lib/format';
 import { downloadCsv } from '../lib/csv';
 import { requestSync } from './MeetingDetail';
@@ -192,7 +192,7 @@ function MembersTab({ people, roles, reload, perms }) {
                   </Link>
                 </td>
                 <td>
-                  <select className="select" style={{ minHeight: 36, padding: '4px 10px', width: 'auto', fontSize: 14 }} value={p.role}
+                  <select className="select" style={{ minHeight: 36, padding: '4px 10px', width: 'auto' }} value={p.role}
                     onChange={(e) => changeRole(p, e.target.value)} disabled={roleOptions(p).length < 2}>
                     {roleOptions(p).map((r) => (
                       <option key={r} value={r}>
@@ -323,7 +323,7 @@ function RolesTab({ roles, people, reload }) {
         <p className="muted small" style={{ flex: 1 }}>
           Role niestandardowe (np. „Koordynator wydarzenia”) nadawane na określony czas. Mogą dawać dodatkowe uprawnienia.
         </p>
-        <button className="btn btn-primary" onClick={() => setEdit({ name: '', color: COLORS[0], description: '', can_post_important: false, can_scan: false, can_manage_meetings: false })}>
+        <button className="btn btn-primary" onClick={() => setEdit({ name: '', color: COLORS[0], description: '', can_post_important: false, can_scan: false, can_manage_meetings: false, can_edit_own: false })}>
           <Plus size={17} /> Nowa rola
         </button>
       </div>
@@ -362,7 +362,10 @@ function RolesTab({ roles, people, reload }) {
                 {r.can_post_important && <span className="badge badge-board">Publikuje w „Ważne”</span>}
                 {r.can_scan && <span className="badge badge-board">Sprawdza obecność</span>}
                 {r.can_manage_meetings && <span className="badge badge-board">Zarządza spotkaniami</span>}
-                {!r.can_post_important && !r.can_scan && !r.can_manage_meetings && <span className="badge">Bez dodatkowych uprawnień</span>}
+                {r.can_edit_own && <span className="badge badge-board">Edytuje swoje treści</span>}
+                {!r.can_post_important && !r.can_scan && !r.can_manage_meetings && !r.can_edit_own && (
+                  <span className="badge">Bez dodatkowych uprawnień</span>
+                )}
               </div>
               <div className="row" style={{ marginTop: 12 }}>
                 {holders(r).slice(0, 6).map((p) => (
@@ -386,8 +389,17 @@ function RoleModal({ role, onClose, onDone }) {
   const submit = async (e) => {
     e.preventDefault();
     try {
-      const { id, name, color, description, can_post_important, can_scan, can_manage_meetings } = r;
-      await api.saveCustomRole({ id, name: name.trim(), color, description: description.trim(), can_post_important, can_scan, can_manage_meetings });
+      const { id, name, color, description, can_post_important, can_scan, can_manage_meetings, can_edit_own } = r;
+      await api.saveCustomRole({
+        id,
+        name: name.trim(),
+        color,
+        description: description.trim(),
+        can_post_important,
+        can_scan,
+        can_manage_meetings,
+        can_edit_own: !!can_edit_own,
+      });
       toast.success('Zapisano rolę');
       onDone();
     } catch (err) {
@@ -438,8 +450,15 @@ function RoleModal({ role, onClose, onDone }) {
         </label>
         <label className="check">
           <input type="checkbox" checked={r.can_manage_meetings} onChange={set('can_manage_meetings')} />
-          <span>Tworzy i edytuje spotkania</span>
+          <span>Tworzy i edytuje wszystkie spotkania</span>
         </label>
+        <label className="check">
+          <input type="checkbox" checked={!!r.can_edit_own} onChange={set('can_edit_own')} />
+          <span>Edytuje swoje treści także po akceptacji zarządu (własne ogłoszenia w „Ważne” i spotkania, które utworzył)</span>
+        </label>
+        <p className="hint">
+          Dostęp do pojedynczego spotkania (edycja / sprawdzanie obecności) nadajesz na stronie tego spotkania, w sekcji „Dostęp ról”.
+        </p>
       </form>
     </Modal>
   );
@@ -472,6 +491,7 @@ function SettingsTab({ canEdit }) {
         drive_folder_id: parseFolderId(s.drive_folder_id),
         apps_script_url: s.apps_script_url.trim(),
         agenda_template_id: parseDocId(s.agenda_template_id),
+        share_agendas: !!s.share_agendas,
       });
       toast.success('Zapisano ustawienia');
       setS(await api.getSettings());
@@ -509,6 +529,14 @@ function SettingsTab({ canEdit }) {
           <input className="input" value={s.agenda_template_id} onChange={set('agenda_template_id')} disabled={!canEdit}
             placeholder="https://docs.google.com/document/d/…" />
         </div>
+        <label className="check">
+          <input type="checkbox" checked={!!s.share_agendas} disabled={!canEdit}
+            onChange={(e) => setS((x) => ({ ...x, share_agendas: e.target.checked }))} />
+          <span className="small">
+            Udostępniaj agendy (Google Docs) do edycji osobom z uprawnieniem do edycji danego spotkania. Działa dla adresów e-mail
+            powiązanych z kontem Google.
+          </span>
+        </label>
         <div className="field">
           <label>Adres wdrożonego Apps Script (do „Synchronizuj teraz”)</label>
           <input className="input" value={s.apps_script_url} onChange={set('apps_script_url')} disabled={!canEdit}
@@ -561,7 +589,7 @@ function SettingsTab({ canEdit }) {
 // ---------------------------------------------------------------------
 function ExportTab({ people }) {
   const toast = useToast();
-  const members = people.filter((p) => isActiveRole(p.role));
+  const members = people.filter((p) => isMemberRole(p.role));
 
   const exportMembers = () => {
     const rows = [['Imię i nazwisko', 'E-mail', 'Rola', 'Role tymczasowe', 'Wydział', 'Kierunek', 'Rok', 'Telefon', 'W komisji od']];

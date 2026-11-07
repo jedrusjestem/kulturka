@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import { api, isDemo } from '../api';
 import { Avatar, Logo } from './ui';
 import { ROLE_LABELS } from '../lib/perms';
+import ErrorBoundary from './ErrorBoundary';
 
 function Brand() {
   return (
@@ -116,7 +117,9 @@ export default function Layout() {
         </header>
 
         <main className="content" key={loc.pathname}>
-          <Outlet />
+          <ErrorBoundary resetKey={loc.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
 
         <nav className="bottom-nav">

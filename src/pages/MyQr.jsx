@@ -82,6 +82,11 @@ export default function MyQr() {
           </div>
         </div>
 
+        {profile.role === 'admin' && (
+          <div className="alert" style={{ marginBottom: 14, textAlign: 'left' }}>
+            Konto administratora nie jest liczone jako członek komisji – skan tego kodu nie zapisze obecności.
+          </div>
+        )}
         {error ? (
           <div className="alert alert-danger">{error}</div>
         ) : (

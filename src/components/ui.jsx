@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, CheckCircle2, AlertCircle, Info } from 'lucide-react';
 import { initials } from '../lib/format';
 import { ROLE_LABELS, activeAssignments } from '../lib/perms';
@@ -87,13 +88,39 @@ export function Empty({ icon: Icon, title, children }) {
   );
 }
 
+// Blokada przewijania tła, gdy otwarte jest okno (licznik – kilka okien naraz)
+let lockCount = 0;
+let savedScroll = 0;
+function lockScroll() {
+  if (lockCount++ > 0) return;
+  savedScroll = window.scrollY;
+  const b = document.body.style;
+  b.position = 'fixed';
+  b.top = `-${savedScroll}px`;
+  b.left = '0';
+  b.right = '0';
+  b.width = '100%';
+}
+function unlockScroll() {
+  if (--lockCount > 0) return;
+  lockCount = 0;
+  const b = document.body.style;
+  b.position = b.top = b.left = b.right = b.width = '';
+  window.scrollTo(0, savedScroll);
+}
+
 export function Modal({ title, onClose, children, footer, width }) {
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose?.();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  return (
+  useEffect(() => {
+    lockScroll();
+    return unlockScroll;
+  }, []);
+  // Portal do <body>: okno zawsze przykrywa cały ekran, niezależnie od animacji rodzica
+  return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
       <div className="modal" style={width ? { maxWidth: width } : undefined} role="dialog" aria-modal="true">
         <div className="modal-head">
@@ -105,7 +132,8 @@ export function Modal({ title, onClose, children, footer, width }) {
         <div className="modal-body">{children}</div>
         {footer && <div className="modal-foot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
