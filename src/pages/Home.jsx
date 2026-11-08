@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, Megaphone, QrCode, Users, ScanLine, ChevronRight, MapPin, ShieldCheck, TrendingUp, PartyPopper } from 'lucide-react';
+import { CalendarDays, Megaphone, QrCode, Users, ScanLine, ChevronRight, MapPin, ShieldCheck, TrendingUp, PartyPopper, MessageSquareWarning } from 'lucide-react';
 import InstallHint from '../components/InstallHint';
 import { EVENT_ROLE_LABELS } from '../lib/perms';
 import { eventDates } from './Events';
@@ -92,6 +92,24 @@ export default function HomePage() {
       </section>
 
       <InstallHint />
+
+      <Link to="/sprawy" className="card case-cta">
+        <div className="stat-icon" style={{ background: 'var(--navy-900)', color: '#fff' }}>
+          <MessageSquareWarning size={22} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <b>Kulturkowe sprawy</b>
+          <div className="small muted">
+            {perms.board
+              ? counts.newCases > 0
+                ? `${counts.newCases} ${counts.newCases === 1 ? 'nowe zawiadomienie czeka' : 'nowe zawiadomienia czekają'} na zarząd`
+                : 'Skrzynka zawiadomień od członków'
+              : 'Masz problem albo pomysł? Zgłoś zarządowi – jawnie lub anonimowo.'}
+          </div>
+        </div>
+        {perms.board && counts.newCases > 0 && <span className="badge badge-pending">{counts.newCases}</span>}
+        <ChevronRight size={18} className="muted" />
+      </Link>
 
       <section className="grid stats-grid">
         <div className="card stat">

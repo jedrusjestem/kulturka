@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined); // undefined = ładowanie
   const [profile, setProfile] = useState(null);
   const [recovery, setRecovery] = useState(false);
-  const [counts, setCounts] = useState({ pendingMembers: 0, pendingAnnouncements: 0, unreadImportant: 0 });
+  const [counts, setCounts] = useState({ pendingMembers: 0, pendingAnnouncements: 0, unreadImportant: 0, newCases: 0 });
 
   const loadProfile = useCallback(async () => {
     try {
@@ -68,14 +68,16 @@ export function AuthProvider({ children }) {
   const refreshCounts = useCallback(async () => {
     if (!perms.active) return;
     try {
-      const [anns, people] = await Promise.all([
+      const [anns, people, newCases] = await Promise.all([
         api.listAnnouncements(),
         perms.board ? api.listProfiles() : Promise.resolve([]),
+        perms.board && api.countNewCases ? api.countNewCases().catch(() => 0) : Promise.resolve(0),
       ]);
       const seen = localStorage.getItem(SEEN_KEY) || '1970';
       setCounts({
         pendingMembers: people.filter((p) => p.role === 'pending').length,
         pendingAnnouncements: perms.board ? anns.filter((a) => a.status === 'pending').length : 0,
+        newCases,
         unreadImportant: anns.filter((a) => a.status === 'published' && a.created_at > seen && a.author_id !== profile?.id)
           .length,
       });

@@ -1873,3 +1873,108 @@ table.table {
   border: 1px dashed var(--sky-300);
   font-size: 13.5px;
 }
+
+
+/* ---------- kulturkowe sprawy ---------- */
+.case-cats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.case-vis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.case-cat {
+  --c: var(--sky-500);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1.5px solid var(--gray-200);
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.08s;
+  color: var(--navy-900);
+}
+.case-cat svg {
+  color: var(--c);
+}
+.case-cat b {
+  font-size: 14.5px;
+}
+.case-cat span {
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.35;
+}
+.case-cat:active {
+  transform: scale(0.98);
+}
+.case-cat.on {
+  border-color: var(--c);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 18%, transparent);
+  background: color-mix(in srgb, var(--c) 6%, #fff);
+}
+.case-token {
+  width: 100%;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--sky-50);
+  border: 1px dashed var(--sky-300);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.case-token code {
+  font-size: 13px;
+  word-break: break-all;
+  color: var(--navy-800);
+}
+.case-response {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--sky-50);
+  border-left: 3px solid var(--sky-500);
+}
+.case-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  align-items: flex-start;
+}
+.case-row:hover {
+  background: var(--sky-50);
+}
+.case-desc {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--gray-100);
+  font-size: 14.5px;
+  max-height: 260px;
+  overflow: auto;
+}
+.case-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  color: inherit;
+}
+.case-cta:hover {
+  text-decoration: none;
+  box-shadow: var(--shadow-lg);
+}
+@media (max-width: 860px) {
+  .case-cats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

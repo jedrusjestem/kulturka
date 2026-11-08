@@ -1,5 +1,5 @@
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
-import { Home, Megaphone, CalendarDays, Users, UserRound, QrCode, ShieldCheck, LogOut, Smartphone, PartyPopper, Bug } from 'lucide-react';
+import { Home, Megaphone, CalendarDays, Users, UserRound, QrCode, ShieldCheck, LogOut, Smartphone, PartyPopper, Bug, MessageSquareWarning } from 'lucide-react';
 import { useState } from 'react';
 import FeedbackModal from './FeedbackModal';
 import { useAuth } from '../auth';
@@ -46,6 +46,11 @@ export default function Layout() {
               {n.count > 0 && <span className="count">{n.count}</span>}
             </NavLink>
           ))}
+          <NavLink to="/sprawy">
+            <MessageSquareWarning size={20} />
+            Kulturkowe sprawy
+            {perms.board && counts.newCases > 0 && <span className="count">{counts.newCases}</span>}
+          </NavLink>
           <div className="nav-label">Moje</div>
           <NavLink to="/moj-qr">
             <QrCode size={20} />

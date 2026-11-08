@@ -355,5 +355,57 @@ export function createSupabaseApi(url, anonKey) {
     async touchSeen() {
       await sb.rpc('touch_seen');
     },
+
+    // ---------- kulturkowe sprawy ----------
+    async submitCase({ category, category_other, description, anonymous }) {
+      return check(
+        await sb.rpc('submit_case', {
+          p_category: category,
+          p_category_other: category_other || '',
+          p_description: description,
+          p_anonymous: !!anonymous,
+        })
+      );
+    },
+    async myCases(tokens) {
+      const [byToken, own] = await Promise.all([
+        tokens.length ? sb.rpc('case_status', { p_tokens: tokens }).then(check) : [],
+        sb
+          .from('cases')
+          .select('id, category, category_other, anonymous, status, response, created_at, updated_at')
+          .eq('reporter_id', await uid())
+          .then(check),
+      ]);
+      const map = new Map();
+      [...(byToken || []), ...(own || [])].forEach((c) => map.set(c.id, c));
+      return [...map.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    },
+    async listCases() {
+      const [rows, notes] = await Promise.all([
+        sb
+          .from('cases')
+          .select(
+            'id, category, category_other, description, anonymous, reporter_id, status, priority, assigned_to, response, created_at, updated_at, resolved_at, ' +
+              'reporter:profiles!reporter_id(id, full_name, avatar_url), assignee:profiles!assigned_to(id, full_name, avatar_url)'
+          )
+          .order('created_at', { ascending: false })
+          .limit(500)
+          .then(check),
+        sb.rpc('case_board_notes').then(check),
+      ]);
+      const n = Object.fromEntries((notes || []).map((x) => [x.id, x.board_note]));
+      return rows.map((r) => ({ ...r, board_note: n[r.id] || '' }));
+    },
+    async updateCase(id, patch) {
+      check(await sb.from('cases').update(patch).eq('id', id));
+    },
+    async deleteCase(id) {
+      check(await sb.from('cases').delete().eq('id', id));
+    },
+    async countNewCases() {
+      const { count, error } = await sb.from('cases').select('id', { count: 'exact', head: true }).eq('status', 'new');
+      if (error) return 0;
+      return count || 0;
+    },
   };
 }

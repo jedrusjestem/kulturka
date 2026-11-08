@@ -10,7 +10,7 @@ import { Avatar, CustomRoleBadges, Empty, RoleBadge, Spinner, gear, Linkify, use
 import { profileUrl } from '../lib/qr';
 import { fmtDate } from '../lib/format';
 import FeedbackModal from '../components/FeedbackModal';
-import { Bug } from 'lucide-react';
+import { Bug, MessageSquareWarning } from 'lucide-react';
 
 export default function Profile() {
   const { id } = useParams();
@@ -183,8 +183,11 @@ export default function Profile() {
 
         {isMe && (
           <div className="stack hide-desktop" style={{ gap: 10 }}>
+            <Link to="/sprawy" className="btn btn-secondary btn-block">
+              <MessageSquareWarning size={17} /> Kulturkowe sprawy – zawiadom zarząd
+            </Link>
             <button className="btn btn-ghost btn-block" onClick={() => setFeedback(true)}>
-              <Bug size={17} /> Zgłoś problem lub pomysł
+              <Bug size={17} /> Zgłoś problem z aplikacją
             </button>
             <button className="btn btn-ghost btn-block" onClick={() => api.signOut()}>
               <LogOut size={17} /> Wyloguj się

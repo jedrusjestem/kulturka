@@ -230,6 +230,11 @@ function seedEvents(db) {
   db.pollResponses = [];
   db.feedback = db.feedback || [];
   const by = (n) => db.users.find((u) => u.full_name.startsWith(n));
+  const kac = by('Kacper');
+  db.cases = [
+    { id: uuid(), category: 'integration', category_other: '', description: 'Nowe osoby w komisji czują się trochę pominięte – może zrobilibyśmy wieczór integracyjny przed Nocą Kultury?', anonymous: true, reporter_id: null, tracking_token: randomSecret(), status: 'new', priority: 'normal', assigned_to: null, board_note: '', response: '', created_at: dayAt(-1, 21).toISOString(), updated_at: now(), resolved_at: null },
+    { id: uuid(), category: 'other', category_other: 'Sprzęt nagłośnieniowy', description: 'Mikrofon bezprzewodowy z magazynu nie działa, a w piątek mamy próbę. Czy ktoś może zgłosić naprawę?', anonymous: false, reporter_id: kac ? kac.id : null, tracking_token: randomSecret(), status: 'in_progress', priority: 'high', assigned_to: by('Michał')?.id || null, board_note: 'Michał sprawdza gwarancję.', response: 'Dzięki! Michał zajmuje się naprawą, do piątku dostaniecie zapasowy mikrofon.', created_at: dayAt(-3, 14).toISOString(), updated_at: now(), resolved_at: null },
+  ];
   const zofia = by('Zofia'), michal = by('Michał'), kacper = by('Kacper'), julia = by('Julia'), igor = by('Igor'), anna = by('Anna');
   if (!zofia || !anna) return db;
   const ev = {
@@ -311,6 +316,7 @@ function load() {
     if (raw) {
       const d = JSON.parse(raw);
       if (!d.events) seedEvents(d);
+      if (!d.cases) d.cases = [];
       return d;
     }
   } catch {
@@ -998,6 +1004,70 @@ export function createDemoApi() {
         u.last_seen_at = now();
         save();
       }
+    },
+
+    // ---------- kulturkowe sprawy ----------
+    async submitCase({ category, category_other, description, anonymous }) {
+      await delay();
+      const u = me();
+      deny(isActive(u), 'Zawiadomienia mogą wysyłać tylko aktywni członkowie');
+      if (category === 'other' && (category_other || '').trim().length < 3) throw new Error('Napisz, czego dotyczy sprawa');
+      if ((description || '').trim().length < 10) throw new Error('Opis musi mieć co najmniej 10 znaków');
+      db.cases = db.cases || [];
+      const c = {
+        id: uuid(),
+        category,
+        category_other: category === 'other' ? category_other.trim() : '',
+        description: description.trim(),
+        anonymous: !!anonymous,
+        reporter_id: anonymous ? null : u.id,
+        tracking_token: randomSecret() + randomSecret().slice(0, 4),
+        status: 'new',
+        priority: 'normal',
+        assigned_to: null,
+        board_note: '',
+        response: '',
+        created_at: now(),
+        updated_at: now(),
+        resolved_at: null,
+      };
+      db.cases.unshift(c);
+      save();
+      return { id: c.id, tracking_token: c.tracking_token, anonymous: c.anonymous };
+    },
+    async myCases(tokens) {
+      const u = me();
+      const pick = ({ id, category, category_other, anonymous, status, response, created_at, updated_at }) => ({
+        id, category, category_other, anonymous, status, response, created_at, updated_at,
+      });
+      return (db.cases || []).filter((c) => tokens.includes(c.tracking_token) || c.reporter_id === u.id).map(pick);
+    },
+    async listCases() {
+      await delay(60);
+      deny(isBoard(me()));
+      const p = (id) => {
+        const x = db.users.find((y) => y.id === id);
+        return x ? { id: x.id, full_name: x.full_name, avatar_url: x.avatar_url } : null;
+      };
+      return (db.cases || []).map(({ tracking_token, ...c }) => ({ ...c, reporter: p(c.reporter_id), assignee: p(c.assigned_to) }));
+    },
+    async updateCase(id, patch) {
+      await delay();
+      deny(isBoard(me()));
+      const c = db.cases.find((x) => x.id === id);
+      const allowed = ['status', 'priority', 'assigned_to', 'board_note', 'response'];
+      allowed.forEach((k) => k in patch && (c[k] = patch[k]));
+      c.updated_at = now();
+      c.resolved_at = ['resolved', 'rejected'].includes(c.status) ? c.resolved_at || now() : null;
+      save();
+    },
+    async deleteCase(id) {
+      deny(isChair(me()));
+      db.cases = db.cases.filter((x) => x.id !== id);
+      save();
+    },
+    async countNewCases() {
+      return isBoard(me()) ? (db.cases || []).filter((c) => c.status === 'new').length : 0;
     },
   };
 }

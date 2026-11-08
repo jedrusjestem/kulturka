@@ -17,6 +17,7 @@ import Admin from './pages/Admin';
 import NotFound from './pages/NotFound';
 import Events from './pages/Events';
 import EventDetail from './pages/EventDetail';
+import Cases from './pages/Cases';
 
 function Gate() {
   const { loading, session, profile, perms, recovery } = useAuth();
@@ -56,6 +57,7 @@ function Gate() {
         <Route path="czlonkowie" element={<Members />} />
         <Route path="wydarzenia" element={<Events />} />
         <Route path="wydarzenia/:id" element={<EventDetail />} />
+        <Route path="sprawy" element={<Cases />} />
         <Route path="u/:id" element={<Profile />} />
         <Route path="ja/edytuj" element={<EditProfile />} />
         <Route path="moj-qr" element={<MyQr />} />

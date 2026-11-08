@@ -7,6 +7,14 @@
 - Rolę administratora istniejącemu kontu nadasz plikiem `supabase/nadaj-admina.sql` (Supabase → SQL Editor).
 - Administrator **nie jest liczony jako członek**: nie ma go na liście członków, w listach obecności ani w statystykach.
 
+## Kulturkowe sprawy (zawiadomienia)
+
+- Każdy aktywny członek może wysłać zawiadomienie (kategoria + opis) **jawnie** albo **anonimowo**. Listę spraw widzi tylko zarząd, przewodniczący i administrator.
+- **Anonimowo** oznacza, że w bazie nie zapisuje się, kto zgłosił – nie da się tego odczytać nawet z poziomu Supabase. Zgłaszający dostaje prywatny kod sprawy (zapisany na jego urządzeniu), po którym widzi status i odpowiedź zarządu.
+- Zarząd ustawia status (Nowa / W trakcie / Rozwiązana / Zamknięta), priorytet, osobę prowadzącą, notatkę wewnętrzną (widzi tylko zarząd) i odpowiedź dla zgłaszającego. Treści zgłoszenia nie da się edytować. Usunąć sprawę może przewodniczący/administrator.
+- Zarząd dostaje e-mail o nowej sprawie (bez treści). Jawny zgłaszający dostaje e-mail o zmianie statusu i odpowiedzi.
+- Sprawy nie trafiają do cotygodniowej kopii zapasowej (dane wrażliwe).
+
 ## Wydarzenia – role
 
 | Rola w wydarzeniu | Odpowiednik | Co może |

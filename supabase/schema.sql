@@ -1199,3 +1199,128 @@ create policy feedback_update on public.feedback for update to authenticated usi
 revoke execute on function public.touch_seen() from public, anon;
 grant execute on function public.touch_seen() to authenticated;
 revoke execute on function public.notify_user(uuid, text, text, text) from public, anon, authenticated;
+
+
+-- #####################################################################
+--  CZĘŚĆ 3: KULTURKOWE SPRAWY (zawiadomienia do zarządu)
+-- #####################################################################
+--  • członkowie tylko wysyłają zawiadomienia (jawnie albo anonimowo),
+--  • zarząd (zarząd, przewodniczący, administrator) widzi listę i prowadzi sprawy,
+--  • przy zgłoszeniu ANONIMOWYM baza NIE zapisuje, kto zgłosił – zgłaszający dostaje
+--    prywatny kod śledzenia (trzymany tylko na jego urządzeniu), po którym widzi status i odpowiedź.
+
+create table if not exists public.cases (
+  id              uuid primary key default gen_random_uuid(),
+  category        text not null check (category in ('general', 'hr', 'integration', 'zrp', 'events', 'conflicts', 'other')),
+  category_other  text not null default '' check (char_length(category_other) <= 120),
+  description     text not null check (char_length(description) between 10 and 5000),
+  anonymous       boolean not null default false,
+  reporter_id     uuid references public.profiles (id) on delete set null,
+  tracking_token  text not null default encode(extensions.gen_random_bytes(18), 'hex'),
+  status          text not null default 'new' check (status in ('new', 'in_progress', 'resolved', 'rejected')),
+  priority        text not null default 'normal' check (priority in ('low', 'normal', 'high')),
+  assigned_to     uuid references public.profiles (id) on delete set null,
+  board_note      text not null default '' check (char_length(board_note) <= 5000),
+  response        text not null default '' check (char_length(response) <= 3000),
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  resolved_at     timestamptz,
+  check (category <> 'other' or char_length(trim(category_other)) >= 3),
+  check (not anonymous or reporter_id is null)
+);
+create index if not exists cases_status_idx on public.cases (status, created_at desc);
+create unique index if not exists cases_token_idx on public.cases (tracking_token);
+
+-- Wysłanie zawiadomienia – jedyna droga dodania sprawy (klient nie podstawi cudzego zgłaszającego)
+create or replace function public.submit_case(p_category text, p_category_other text, p_description text, p_anonymous boolean)
+returns jsonb language plpgsql security definer set search_path = public, extensions as $$
+declare
+  v_case public.cases;
+  v_label text;
+begin
+  if not public.is_active_member() then
+    raise exception 'Zawiadomienia mogą wysyłać tylko aktywni członkowie';
+  end if;
+  insert into public.cases (category, category_other, description, anonymous, reporter_id)
+  values (p_category,
+          case when p_category = 'other' then trim(coalesce(p_category_other, '')) else '' end,
+          trim(coalesce(p_description, '')),
+          coalesce(p_anonymous, false),
+          case when coalesce(p_anonymous, false) then null else auth.uid() end)
+  returning * into v_case;
+
+  v_label := case p_category when 'general' then 'Ogólne' when 'hr' then 'HR' when 'integration' then 'Integracje'
+    when 'zrp' then 'ZRP' when 'events' then 'Wydarzenia' when 'conflicts' then 'Konflikty' else 'Inne' end;
+  -- powiadomienie zarządu bez treści (szczegóły tylko w aplikacji)
+  perform public.notify_user(p.id, 'Nowa kulturkowa sprawa: ' || v_label,
+    'W skrzynce „Kulturkowe sprawy” czeka nowe zawiadomienie' || case when v_case.anonymous then ' (anonimowe).' else '.' end,
+    '#/sprawy')
+  from public.profiles p where p.role in ('board', 'chair', 'admin');
+
+  return jsonb_build_object('id', v_case.id, 'tracking_token', v_case.tracking_token, 'anonymous', v_case.anonymous);
+end $$;
+
+-- Status sprawy po kodach śledzenia (dla zgłaszającego, również anonimowego)
+create or replace function public.case_status(p_tokens text[])
+returns table (id uuid, category text, category_other text, anonymous boolean, status text, response text,
+               created_at timestamptz, updated_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select c.id, c.category, c.category_other, c.anonymous, c.status, c.response, c.created_at, c.updated_at
+  from public.cases c
+  where c.tracking_token = any (p_tokens) and public.is_active_member()
+$$;
+
+-- Notatki wewnętrzne zarządu (kolumna niedostępna wprost dla zwykłych zapytań)
+create or replace function public.case_board_notes() returns table (id uuid, board_note text)
+language sql stable security definer set search_path = public as $$
+  select c.id, c.board_note from public.cases c where public.is_board()
+$$;
+
+-- Treść zgłoszenia jest niezmienna; zarząd zmienia tylko pola obsługi sprawy
+create or replace function public.cases_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.id := old.id;
+  new.category := old.category;
+  new.category_other := old.category_other;
+  new.description := old.description;
+  new.anonymous := old.anonymous;
+  new.reporter_id := old.reporter_id;
+  new.tracking_token := old.tracking_token;
+  new.created_at := old.created_at;
+  new.updated_at := now();
+  if new.status in ('resolved', 'rejected') and old.status not in ('resolved', 'rejected') then
+    new.resolved_at := now();
+  elsif new.status not in ('resolved', 'rejected') then
+    new.resolved_at := null;
+  end if;
+  -- powiadomienie jawnego zgłaszającego o zmianie statusu lub odpowiedzi
+  if old.reporter_id is not null and (new.status is distinct from old.status or new.response is distinct from old.response) then
+    perform public.notify_user(old.reporter_id, 'Twoja kulturkowa sprawa: ' ||
+      case new.status when 'new' then 'przyjęta' when 'in_progress' then 'w trakcie' when 'resolved' then 'rozwiązana' else 'zamknięta' end,
+      coalesce(nullif(new.response, ''), 'Status Twojego zawiadomienia został zaktualizowany.'), '#/sprawy');
+  end if;
+  return new;
+end $$;
+drop trigger if exists cases_guard on public.cases;
+create trigger cases_guard before update on public.cases
+  for each row execute function public.cases_guard();
+
+alter table public.cases enable row level security;
+create policy cases_read   on public.cases for select to authenticated using (public.is_board() or reporter_id = auth.uid());
+create policy cases_update on public.cases for update to authenticated using (public.is_board()) with check (public.is_board());
+create policy cases_delete on public.cases for delete to authenticated using (public.is_chair());
+
+-- Kolumny: kod śledzenia i notatka zarządu nie są dostępne w zwykłych zapytaniach
+revoke all on public.cases from anon, authenticated;
+grant select (id, category, category_other, description, anonymous, reporter_id, status, priority, assigned_to,
+              response, created_at, updated_at, resolved_at) on public.cases to authenticated;
+grant update (status, priority, assigned_to, board_note, response) on public.cases to authenticated;
+grant delete on public.cases to authenticated;
+
+revoke execute on function public.submit_case(text, text, text, boolean) from public, anon;
+grant execute on function public.submit_case(text, text, text, boolean) to authenticated;
+revoke execute on function public.case_status(text[]) from public, anon;
+grant execute on function public.case_status(text[]) to authenticated;
+revoke execute on function public.case_board_notes() from public, anon;
+grant execute on function public.case_board_notes() to authenticated;
