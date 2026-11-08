@@ -1384,7 +1384,8 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Widoczność profilu: pola ukryte przez właściciela są puste dla innych członków (zarząd widzi wszystko)
-create or replace view public.member_profiles as
+drop view if exists public.member_profiles;
+create view public.member_profiles as
 select
   p.id, p.full_name, p.role, p.avatar_url, p.headline, p.cover_color, p.approved_at, p.created_at,
   (p.id = auth.uid() or public.is_board()) as full_access,
@@ -1791,3 +1792,40 @@ begin
   end if;
   return new;
 end $$;
+
+
+-- #####################################################################
+--  CZĘŚĆ 5: LINKI DO MEDIÓW SPOŁECZNOŚCIOWYCH W PROFILU
+-- #####################################################################
+alter table public.profiles add column if not exists socials jsonb not null default '{}'::jsonb;
+-- przeniesienie dotychczasowych pól (Instagram, Facebook, strona)
+update public.profiles
+   set socials = jsonb_strip_nulls(jsonb_build_object(
+         'instagram', nullif(instagram, ''), 'facebook', nullif(facebook, ''), 'website', nullif(website, '')))
+ where socials = '{}'::jsonb and (coalesce(instagram, '') <> '' or coalesce(facebook, '') <> '' or coalesce(website, '') <> '');
+
+drop view if exists public.member_profiles;
+create view public.member_profiles as
+select
+  p.id, p.full_name, p.role, p.avatar_url, p.headline, p.cover_color, p.approved_at, p.created_at,
+  (p.id = auth.uid() or public.is_board()) as full_access,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'study')::boolean, true) then p.faculty else '' end as faculty,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'study')::boolean, true) then p.study_field else '' end as study_field,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'study')::boolean, true) then p.study_year else '' end as study_year,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'bio')::boolean, true) then p.bio else '' end as bio,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'interests')::boolean, true) then p.interests else '{}'::text[] end as interests,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'socials')::boolean, true) then p.instagram else '' end as instagram,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'socials')::boolean, true) then p.facebook else '' end as facebook,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'socials')::boolean, true) then p.website else '' end as website,
+  case when p.id = auth.uid() or public.is_board() then p.privacy end as privacy,
+  case when p.id = auth.uid() or public.is_board() then p.last_seen_at end as last_seen_at,
+  case when p.id = auth.uid() or public.is_board() then p.consent_at end as consent_at,
+  case when p.id = auth.uid() then p.notify_email end as notify_email,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'socials')::boolean, true) then p.socials else '{}'::jsonb end as socials
+from public.profiles p
+where p.id = auth.uid()
+   or public.is_board()
+   or (public.is_active_member() and p.role in ('member', 'board', 'chair', 'admin', 'alumni'));
+
+revoke all on public.member_profiles from anon;
+grant select on public.member_profiles to authenticated;

@@ -2515,3 +2515,78 @@ table.table {
     height: 100dvh;
   }
 }
+
+/* ---------- linki do social media ---------- */
+.social-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+.social-dot.sm {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font-size: 9.5px;
+}
+.social-edit {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.social-edit .social-dot {
+  margin-bottom: 5px;
+}
+.social-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.social-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.social-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 6px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--navy-800);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  text-decoration: none !important;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+a.social-chip:hover {
+  border-color: var(--sky-300);
+  background: #fff;
+}
+.social-chip.add {
+  cursor: pointer;
+  background: #fff;
+  border: 1px dashed var(--gray-200);
+  color: var(--gray-500);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.social-chip.add:hover {
+  border-color: var(--sky-400);
+  color: var(--sky-700);
+}

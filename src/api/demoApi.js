@@ -327,7 +327,7 @@ function seedSocial(db) {
     if (u.role !== 'pending') db.private[u.id] = { phone: `600 100 ${200 + i}`, student_id: String(260100 + i), birth_date: null, emergency_contact: '', info: '' };
   });
   Object.assign(zofia, { headline: 'Grafika i plakaty 🎨', cover_color: '#EC4899', interests: ['grafika', 'typografia', 'kino'] });
-  Object.assign(kacper, { headline: 'Dźwięk i nagłośnienie', cover_color: '#0D2436', interests: ['muzyka', 'elektronika'] });
+  Object.assign(kacper, { headline: 'Dźwięk i nagłośnienie', cover_color: '#0D2436', interests: ['muzyka', 'elektronika'], socials: { instagram: 'kacper.sound', spotify: 'https://open.spotify.com/user/kacper', discord: 'kacper#2026' } });
   if (anna) Object.assign(anna, { headline: 'Przewodnicząca KKiP', interests: ['teatr', 'planszówki'] });
   const post = (u, body, h, extra = {}) => {
     const at = dayAt(0, h).toISOString();
@@ -453,6 +453,7 @@ function maskProfile(u) {
     instagram: show('socials') ? u.instagram : '',
     facebook: show('socials') ? u.facebook : '',
     website: show('socials') ? u.website || '' : '',
+    socials: show('socials') ? u.socials || {} : {},
     privacy: full ? pv : null,
     last_seen_at: full ? u.last_seen_at : null,
     notify_email: viewer?.id === u.id ? u.notify_email : undefined,

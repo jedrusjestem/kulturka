@@ -13,6 +13,7 @@ import { fmtDate } from '../lib/format';
 import FeedbackModal from '../components/FeedbackModal';
 import { coverBg } from './EditProfile';
 import { Feed } from './Community';
+import { filledSocials, socialHref, socialLabel } from '../lib/socials';
 
 export default function Profile() {
   const { id } = useParams();
@@ -71,7 +72,12 @@ export default function Profile() {
       /* anulowano */
     }
   };
-  const hasInfo = p.faculty || p.study_field || p.study_year || p.instagram || p.facebook || p.website || p.approved_at || stats;
+  const socials = { ...(p.socials || {}) };
+  if (!socials.instagram && p.instagram) socials.instagram = p.instagram;
+  if (!socials.facebook && p.facebook) socials.facebook = p.facebook;
+  if (!socials.website && p.website) socials.website = p.website;
+  const links = filledSocials(socials);
+  const hasInfo = p.faculty || p.study_field || p.study_year || p.approved_at || stats;
 
   return (
     <div style={{ maxWidth: 760, margin: '0 auto' }}>
@@ -109,6 +115,30 @@ export default function Profile() {
             <p className="pre" style={{ marginTop: 14, color: 'var(--navy-800)' }}>
               <Linkify text={p.bio} />
             </p>
+          )}
+          {links.length > 0 && (
+            <div className="social-links">
+              {links.map((pl) => {
+                const href = socialHref(pl, socials[pl.key]);
+                const inner = (
+                  <>
+                    <span className="social-dot sm" style={{ background: pl.color }}>
+                      {pl.short}
+                    </span>
+                    {socialLabel(pl, socials[pl.key])}
+                  </>
+                );
+                return href ? (
+                  <a key={pl.key} className="social-chip" href={href} target="_blank" rel="noopener noreferrer" title={pl.label}>
+                    {inner}
+                  </a>
+                ) : (
+                  <span key={pl.key} className="social-chip" title={pl.label}>
+                    {inner}
+                  </span>
+                );
+              })}
+            </div>
           )}
           {p.interests?.length > 0 && (
             <div className="row row-wrap" style={{ gap: 6, marginTop: 12 }}>
@@ -174,30 +204,6 @@ export default function Profile() {
             {(p.study_field || p.study_year) && (
               <div className="info-row">
                 <GraduationCap size={18} /> {[p.study_field, p.study_year].filter(Boolean).join(', ')}
-              </div>
-            )}
-            {p.instagram && (
-              <div className="info-row">
-                <AtSign size={18} />
-                <a href={`https://instagram.com/${p.instagram.replace(/^@/, '')}`} target="_blank" rel="noopener noreferrer">
-                  @{p.instagram.replace(/^@/, '')}
-                </a>
-              </div>
-            )}
-            {p.facebook && (
-              <div className="info-row">
-                <Globe size={18} />
-                <a href={p.facebook.startsWith('http') ? p.facebook : `https://facebook.com/${p.facebook}`} target="_blank" rel="noopener noreferrer">
-                  Facebook
-                </a>
-              </div>
-            )}
-            {p.website && (
-              <div className="info-row">
-                <Link2 size={18} />
-                <a href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener noreferrer">
-                  {p.website.replace(/^https?:\/\//, '')}
-                </a>
               </div>
             )}
             {stats && (

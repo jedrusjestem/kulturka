@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { Avatar, Spinner, useConfirm, useToast } from '../components/ui';
 import { resizeImage } from '../lib/image';
 import { PrivateInfoFields, privateComplete } from './PrivateInfo';
+import { SOCIALS } from '../lib/socials';
 
 const FACULTIES = [
   'W1 – Architektury',
@@ -51,9 +52,14 @@ export default function EditProfile() {
   const [pw, setPw] = useState('');
 
   useEffect(() => {
-    (editingOther ? api.getProfile(otherId) : api.getMyProfile()).then((p) =>
-      setF({ ...p, privacy: { ...PRIV_DEFAULT, ...(p.privacy || {}) }, interests: p.interests || [] })
-    );
+    (editingOther ? api.getProfile(otherId) : api.getMyProfile()).then((p) => {
+      const socials = { ...(p.socials || {}) };
+      // starsze pola (sprzed listy serwisów)
+      if (!socials.instagram && p.instagram) socials.instagram = p.instagram;
+      if (!socials.facebook && p.facebook) socials.facebook = p.facebook;
+      if (!socials.website && p.website) socials.website = p.website;
+      setF({ ...p, socials, privacy: { ...PRIV_DEFAULT, ...(p.privacy || {}) }, interests: p.interests || [] });
+    });
     if (!editingOther) api.getMyPrivate().then((x) => setPriv({ phone: '', student_id: '', birth_date: '', emergency_contact: '', info: '', ...(x || {}) }));
   }, [editingOther, otherId]);
 
@@ -86,9 +92,18 @@ export default function EditProfile() {
     if (!f.full_name.trim()) return toast.error('Podaj imię i nazwisko');
     setBusy(true);
     try {
-      const fields = ['full_name', 'headline', 'cover_color', 'faculty', 'study_field', 'study_year', 'bio', 'instagram', 'facebook', 'website', 'avatar_url', 'interests', 'privacy'];
+      const fields = ['full_name', 'headline', 'cover_color', 'faculty', 'study_field', 'study_year', 'bio', 'avatar_url', 'interests', 'privacy'];
       if (!editingOther) fields.push('notify_email');
       const patch = Object.fromEntries(fields.map((k) => [k, typeof f[k] === 'string' ? f[k].trim() : f[k]]));
+      // tylko uzupełnione serwisy
+      patch.socials = Object.fromEntries(
+        Object.entries(f.socials || {})
+          .map(([k, v]) => [k, String(v || '').trim().slice(0, 200)])
+          .filter(([, v]) => v)
+      );
+      patch.instagram = patch.socials.instagram || '';
+      patch.facebook = patch.socials.facebook || '';
+      patch.website = patch.socials.website || '';
       if (!editingOther && priv) {
         if (me.role !== 'admin' && !privateComplete(priv)) throw new Error('Telefon i numer indeksu w danych poufnych są wymagane');
         if (me.role !== 'admin' || privateComplete(priv)) await api.saveMyPrivate(priv);
@@ -233,20 +248,36 @@ export default function EditProfile() {
             <h3 style={{ flex: 1 }}>Social media</h3>
             <VisToggle on={f.privacy.socials} onChange={setVis('socials')} />
           </div>
-          <div className="grid grid-2" style={{ gap: 12 }}>
-            <div className="field">
-              <label>Instagram</label>
-              <input className="input" value={f.instagram || ''} onChange={set('instagram')} placeholder="@nazwa" maxLength={40} />
+          <p className="small muted">Wpisz nazwę użytkownika albo wklej link. Na profilu pokażą się tylko uzupełnione serwisy.</p>
+          {SOCIALS.filter((p) => p.key in (f.socials || {})).map((p) => (
+            <div key={p.key} className="social-edit">
+              <span className="social-dot" style={{ background: p.color }}>
+                {p.short}
+              </span>
+              <div className="field" style={{ flex: 1 }}>
+                <label>{p.label}</label>
+                <input className="input" maxLength={200} value={f.socials[p.key] || ''} placeholder={p.placeholder}
+                  onChange={(e) => setF((x) => ({ ...x, socials: { ...x.socials, [p.key]: e.target.value } }))} />
+              </div>
+              <button type="button" className="btn btn-ghost btn-icon btn-sm" style={{ width: 34, height: 34, alignSelf: 'flex-end', marginBottom: 5 }}
+                aria-label={`Usuń ${p.label}`}
+                onClick={() => setF((x) => { const s2 = { ...x.socials }; delete s2[p.key]; return { ...x, socials: s2 }; })}>
+                <X size={16} />
+              </button>
             </div>
-            <div className="field">
-              <label>Facebook (link lub nazwa)</label>
-              <input className="input" value={f.facebook || ''} onChange={set('facebook')} maxLength={120} />
+          ))}
+          {SOCIALS.some((p) => !(p.key in (f.socials || {}))) && (
+            <div className="social-add">
+              {SOCIALS.filter((p) => !(p.key in (f.socials || {}))).map((p) => (
+                <button type="button" key={p.key} className="social-chip add" onClick={() => setF((x) => ({ ...x, socials: { ...x.socials, [p.key]: '' } }))}>
+                  <span className="social-dot sm" style={{ background: p.color }}>
+                    {p.short}
+                  </span>
+                  + {p.label}
+                </button>
+              ))}
             </div>
-          </div>
-          <div className="field">
-            <label>Strona / portfolio</label>
-            <input className="input" type="url" value={f.website || ''} onChange={set('website')} maxLength={200} placeholder="https://…" />
-          </div>
+          )}
         </div>
 
         {/* ---- dane poufne ---- */}
