@@ -40,7 +40,8 @@ function Gate() {
   if (!profile || privateInfo === undefined) return <Spinner center />;
 
   // najpierw dane poufne dla zarządu (telefon, nr indeksu)
-  if (!privateComplete(privateInfo) && !['rejected', 'alumni'].includes(profile.role)) return <PrivateInfoOnboarding />;
+  // administrator tylko nadzoruje – nie podaje danych poufnych
+  if (!privateComplete(privateInfo) && !['rejected', 'alumni', 'admin'].includes(profile.role)) return <PrivateInfoOnboarding />;
 
   if (!perms.active) {
     return (

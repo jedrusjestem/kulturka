@@ -90,8 +90,8 @@ export default function EditProfile() {
       if (!editingOther) fields.push('notify_email');
       const patch = Object.fromEntries(fields.map((k) => [k, typeof f[k] === 'string' ? f[k].trim() : f[k]]));
       if (!editingOther && priv) {
-        if (!privateComplete(priv)) throw new Error('Telefon i numer indeksu w danych poufnych są wymagane');
-        await api.saveMyPrivate(priv);
+        if (me.role !== 'admin' && !privateComplete(priv)) throw new Error('Telefon i numer indeksu w danych poufnych są wymagane');
+        if (me.role !== 'admin' || privateComplete(priv)) await api.saveMyPrivate(priv);
         refreshPrivate();
       }
       const updated = await api.updateProfile(f.id, patch);
@@ -250,7 +250,7 @@ export default function EditProfile() {
         </div>
 
         {/* ---- dane poufne ---- */}
-        {!editingOther && priv && (
+        {!editingOther && priv && me.role !== 'admin' && (
           <div className="card card-pad stack" style={{ borderColor: 'var(--sky-200)' }}>
             <h3 className="row" style={{ gap: 8 }}>
               <Lock size={18} /> Dane poufne – widzi tylko zarząd
