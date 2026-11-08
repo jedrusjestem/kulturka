@@ -9,7 +9,7 @@
 
 ## Prywatność profili i dane poufne
 
-- **E-mail, telefon, nr indeksu, data urodzenia, kontakt awaryjny i informacje dla zarządu** widzi wyłącznie zarząd (zarząd, przewodniczący, administrator) oraz sam właściciel. W bazie są w osobnej tabeli `profile_private`, a e-mail w profilu nie jest dostępny dla zwykłych zapytań.
+- **E-mail, telefon, nr indeksu i data urodzenia** widzi wyłącznie zarząd (zarząd, przewodniczący, administrator) oraz sam właściciel. W bazie są w osobnej tabeli `profile_private`, a e-mail w profilu nie jest dostępny dla zwykłych zapytań.
 - Po pierwszym logowaniu każdy musi uzupełnić telefon i numer indeksu (ekran „Uzupełnij dane dla zarządu”).
 - Każdy sam decyduje, czy inni członkowie widzą sekcje profilu: studia, „o mnie”, zainteresowania, social media (przełączniki w „Edytuj profil”). Ukryte pola widzi tylko zarząd – filtruje je baza (widok `member_profiles`), nie tylko aplikacja.
 

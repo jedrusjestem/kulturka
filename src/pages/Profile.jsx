@@ -147,16 +147,6 @@ export default function Profile() {
               <Cake size={18} /> {fmtDate(priv.birth_date)}
             </div>
           )}
-          {priv.emergency_contact && (
-            <div className="info-row">
-              <LifeBuoy size={18} /> Kontakt awaryjny: {priv.emergency_contact}
-            </div>
-          )}
-          {priv.info && (
-            <div className="info-row" style={{ alignItems: 'flex-start' }}>
-              <StickyNote size={18} /> <span className="pre">{priv.info}</span>
-            </div>
-          )}
         </div>
       )}
 

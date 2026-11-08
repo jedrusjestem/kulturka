@@ -20,20 +20,9 @@ export function PrivateInfoFields({ value, onChange }) {
           <input className="input" required inputMode="numeric" maxLength={20} value={value.student_id || ''} onChange={set('student_id')} placeholder="np. 270123" />
         </div>
       </div>
-      <div className="grid grid-2" style={{ gap: 12 }}>
-        <div className="field">
-          <label>Data urodzenia</label>
-          <input className="input" type="date" value={value.birth_date || ''} onChange={set('birth_date')} />
-        </div>
-        <div className="field">
-          <label>Kontakt awaryjny</label>
-          <input className="input" maxLength={200} value={value.emergency_contact || ''} onChange={set('emergency_contact')} placeholder="np. Mama – 600 000 000" />
-        </div>
-      </div>
       <div className="field">
-        <label>Informacje dla zarządu</label>
-        <textarea className="textarea" rows={3} maxLength={1000} value={value.info || ''} onChange={set('info')}
-          placeholder="np. dieta lub alergie (na wyjazdy i wydarzenia), dostępność, inne ważne informacje" />
+        <label>Data urodzenia</label>
+        <input className="input" type="date" value={value.birth_date || ''} onChange={set('birth_date')} />
       </div>
     </div>
   );
@@ -45,7 +34,7 @@ export const privateComplete = (p) => !!(p && (p.phone || '').trim() && (p.stude
 export default function PrivateInfoOnboarding() {
   const { profile, refreshPrivate, privateInfo } = useAuth();
   const toast = useToast();
-  const [v, setV] = useState(() => ({ phone: '', student_id: '', birth_date: '', emergency_contact: '', info: '', ...(privateInfo || {}) }));
+  const [v, setV] = useState(() => ({ phone: '', student_id: '', birth_date: '', ...(privateInfo || {}) }));
   const [busy, setBusy] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
