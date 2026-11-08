@@ -1978,3 +1978,64 @@ table.table {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+/* =====================================================================
+   Okna dialogowe: stały nagłówek i przyciski, przewija się tylko treść
+   (naprawa przewijania długich formularzy na telefonie)
+   ===================================================================== */
+.modal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-height: calc(var(--vvh, 100dvh) - 40px);
+}
+.modal-head {
+  flex-shrink: 0;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 22px 22px;
+}
+.modal-foot {
+  flex-shrink: 0;
+  padding: 14px 22px;
+  border-top: 1px solid var(--gray-100);
+  background: #fff;
+}
+.modal-backdrop {
+  overscroll-behavior: contain;
+}
+@media (max-width: 860px) {
+  .modal-backdrop {
+    top: var(--vvt, 0px);
+    bottom: auto;
+    height: var(--vvh, 100dvh);
+  }
+  .modal {
+    max-height: calc(var(--vvh, 100dvh) - 8px);
+    padding-bottom: 0;
+  }
+  .modal-head {
+    padding: 14px 18px 12px;
+  }
+  .modal-body {
+    padding: 16px 18px 20px;
+  }
+  .modal-foot {
+    padding: 12px 18px calc(12px + var(--safe-b));
+  }
+  .modal-foot .btn {
+    flex: 1;
+  }
+  /* przy otwartej klawiaturze dolne menu nie zasłania pól */
+  body.kb-open .bottom-nav {
+    display: none;
+  }
+}

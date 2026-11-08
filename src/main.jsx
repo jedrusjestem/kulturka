@@ -27,6 +27,17 @@ document.addEventListener(
   },
   { passive: false }
 );
+// Klawiatura otwarta → klasa na <body> (ukrywa dolne menu, żeby nie zasłaniało pól).
+document.addEventListener('focusin', (e) => {
+  if (e.target.matches?.('input:not([type=checkbox]):not([type=radio]):not([type=file]), textarea, select'))
+    document.body.classList.add('kb-open');
+});
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
+    if (!document.activeElement?.matches?.('input, textarea, select')) document.body.classList.remove('kb-open');
+  }, 100);
+});
+
 // Po schowaniu klawiatury (iOS/Android) przywróć poprawne położenie widoku.
 document.addEventListener('focusout', (e) => {
   if (!e.target.matches?.('input, textarea, select')) return;

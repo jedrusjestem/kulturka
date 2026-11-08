@@ -119,10 +119,34 @@ export function Modal({ title, onClose, children, footer, width }) {
     lockScroll();
     return unlockScroll;
   }, []);
+  // Okno dopasowuje się do WIDOCZNEGO obszaru (np. gdy na telefonie otwarta jest klawiatura)
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const root = document.documentElement;
+    const update = () => {
+      root.style.setProperty('--vvh', `${vv ? vv.height : window.innerHeight}px`);
+      root.style.setProperty('--vvt', `${vv ? vv.offsetTop : 0}px`);
+    };
+    update();
+    vv?.addEventListener('resize', update);
+    vv?.addEventListener('scroll', update);
+    window.addEventListener('resize', update);
+    return () => {
+      vv?.removeEventListener('resize', update);
+      vv?.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+  // aktywne pole zawsze widoczne w przewijanej treści okna
+  const onFocusCapture = (e) => {
+    if (!e.target.matches?.('input, textarea, select')) return;
+    const el = e.target;
+    setTimeout(() => el.scrollIntoView?.({ block: 'center', behavior: 'smooth' }), 320);
+  };
   // Portal do <body>: okno zawsze przykrywa cały ekran, niezależnie od animacji rodzica
   return createPortal(
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}>
-      <div className="modal" style={width ? { maxWidth: width } : undefined} role="dialog" aria-modal="true">
+      <div className="modal" style={width ? { maxWidth: width } : undefined} role="dialog" aria-modal="true" onFocusCapture={onFocusCapture}>
         <div className="modal-head">
           <h2>{title}</h2>
           <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Zamknij">
