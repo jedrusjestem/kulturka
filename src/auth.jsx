@@ -13,17 +13,30 @@ export function AuthProvider({ children }) {
   const [recovery, setRecovery] = useState(false);
   const [counts, setCounts] = useState({ pendingMembers: 0, pendingAnnouncements: 0, unreadImportant: 0, newCases: 0 });
 
+  const [privateInfo, setPrivateInfo] = useState(undefined); // undefined = ładowanie
+  const loadPrivate = useCallback(async () => {
+    try {
+      const pr = await api.getMyPrivate();
+      setPrivateInfo(pr || null);
+      return pr;
+    } catch (e) {
+      console.warn(e);
+      setPrivateInfo(null);
+      return null;
+    }
+  }, []);
   const loadProfile = useCallback(async () => {
     try {
       const p = await api.getMyProfile();
       setProfile(p);
+      if (p) loadPrivate();
       return p;
     } catch (e) {
       console.error(e);
       setProfile(null);
       return null;
     }
-  }, []);
+  }, [loadPrivate]);
 
   useEffect(() => {
     let alive = true;
@@ -39,6 +52,7 @@ export function AuthProvider({ children }) {
       if (s) await loadProfile();
       else {
         setProfile(null);
+        setPrivateInfo(undefined);
         localStorage.removeItem('kulturka-qr-secret');
       }
       setSession(s);
@@ -104,6 +118,8 @@ export function AuthProvider({ children }) {
     perms,
     loading: session === undefined,
     refreshProfile: loadProfile,
+    privateInfo,
+    refreshPrivate: loadPrivate,
     counts,
     refreshCounts,
     markImportantSeen,

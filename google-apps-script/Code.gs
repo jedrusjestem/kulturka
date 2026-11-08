@@ -66,6 +66,11 @@ function sync() {
     } catch (err) {
       console.error('Powiadomienia: ' + err);
     }
+    try {
+      cleanupStories();
+    } catch (err) {
+      console.error('Sprzątanie story: ' + err);
+    }
     if (!settings.drive_folder_id) {
       console.log('Brak folderu Google Drive w ustawieniach aplikacji – tylko keep-alive.');
       return;
@@ -345,6 +350,27 @@ function processNotifications(settings) {
   });
 }
 
+/** Usuwa story wygasłe ponad dobę temu (rekord + zdjęcie), żeby nie zapychać darmowego miejsca */
+function cleanupStories() {
+  const cutoff = new Date(Date.now() - 24 * 3600e3).toISOString();
+  const old = sb('GET', 'stories?select=id,image_url&expires_at=lt.' + encodeURIComponent(cutoff) + '&limit=100') || [];
+  if (!old.length) return;
+  const p = PropertiesService.getScriptProperties();
+  const url = p.getProperty('SUPABASE_URL').replace(/\/$/, '');
+  const key = p.getProperty('SUPABASE_SERVICE_KEY');
+  const paths = old
+    .map((s) => (s.image_url.split('/storage/v1/object/public/community/')[1] || ''))
+    .filter(Boolean);
+  if (paths.length) {
+    const headers = { apikey: key, 'Content-Type': 'application/json' };
+    if (key.indexOf('eyJ') === 0) headers.Authorization = 'Bearer ' + key;
+    UrlFetchApp.fetch(url + '/storage/v1/object/community', {
+      method: 'delete', headers: headers, payload: JSON.stringify({ prefixes: paths }), muteHttpExceptions: true,
+    });
+  }
+  sb('DELETE', 'stories?id=in.(' + old.map((s) => s.id).join(',') + ')');
+}
+
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 }
@@ -381,7 +407,7 @@ function backup() {
   const tables = [
     'app_settings', 'profiles', 'custom_roles', 'custom_role_assignments', 'announcements', 'meetings', 'attendance',
     'meeting_role_access', 'events', 'event_members', 'event_announcements', 'availability_polls', 'availability_responses',
-    'audit_log', 'feedback',
+    'audit_log', 'feedback', 'profile_private', 'event_roles', 'event_role_assignments', 'posts', 'post_likes', 'post_comments',
   ];
   const data = { created_at: new Date().toISOString(), note: 'Kopia Kulturki (bez haseł i sekretów QR)', tables: {} };
   tables.forEach((t) => {

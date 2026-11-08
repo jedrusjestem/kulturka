@@ -20,8 +20,9 @@ export default function Admin() {
   const [roles, setRoles] = useState([]);
 
   const load = useCallback(async () => {
-    const [p, r] = await Promise.all([api.listProfiles(), api.listCustomRoles()]);
-    setPeople(p);
+    const [p, r, priv] = await Promise.all([api.listProfiles(), api.listCustomRoles(), api.listPrivate().catch(() => ({}))]);
+    // e-mail i dane poufne (widoczne tylko dla zarządu) dołączamy do profili
+    setPeople(p.map((x) => ({ ...x, email: priv[x.id]?.email || '', phone: priv[x.id]?.phone || '', student_id: priv[x.id]?.student_id || '' })));
     setRoles(r);
     refreshCounts();
   }, [refreshCounts]);
@@ -619,7 +620,7 @@ function ExportTab({ people }) {
   const members = people.filter((p) => isMemberRole(p.role));
 
   const exportMembers = () => {
-    const rows = [['Imię i nazwisko', 'E-mail', 'Rola', 'Role tymczasowe', 'Wydział', 'Kierunek', 'Rok', 'Telefon', 'W komisji od']];
+    const rows = [['Imię i nazwisko', 'E-mail', 'Rola', 'Role tymczasowe', 'Wydział', 'Kierunek', 'Rok', 'Telefon', 'Nr indeksu', 'W komisji od']];
     members.forEach((p) =>
       rows.push([
         p.full_name,
@@ -630,6 +631,7 @@ function ExportTab({ people }) {
         p.study_field,
         p.study_year,
         p.phone,
+        p.student_id,
         p.approved_at ? new Date(p.approved_at).toLocaleDateString('pl-PL') : '',
       ])
     );

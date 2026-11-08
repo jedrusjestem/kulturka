@@ -4,8 +4,9 @@ const one = (x) => (Array.isArray(x) ? x[0] || null : x || null);
 const withPoll = (rows) => (rows || []).map((r) => ({ ...r, poll: one(r.poll) }));
 const AUTHOR = 'author:profiles!author_id(id, full_name, avatar_url)';
 
-const PROFILE_SELECT =
-  '*, assignments:custom_role_assignments!user_id(id, expires_at, role_id, role:custom_roles(*))';
+// Profile czytamy z widoku member_profiles (respektuje ustawienia widoczności); role tymczasowe dołączamy osobno
+const POST_SELECT =
+  '*, author:profiles!author_id(id, full_name, avatar_url, headline), likes:post_likes(user_id), comments:post_comments(count)';
 
 function check({ data, error }) {
   if (error) throw new Error(translateError(error.message));
@@ -83,10 +84,27 @@ export function createSupabaseApi(url, anonKey) {
     async getMyProfile() {
       const id = await uid();
       if (!id) return null;
-      return check(await sb.from('profiles').select(PROFILE_SELECT).eq('id', id).maybeSingle());
+      return this.getProfile(id);
     },
     async updateProfile(id, patch) {
-      return check(await sb.from('profiles').update(patch).eq('id', id).select(PROFILE_SELECT).single());
+      check(await sb.from('profiles').update(patch).eq('id', id));
+      return this.getProfile(id);
+    },
+    async getMyPrivate() {
+      const rows = check(await sb.rpc('private_profiles', { p_user: await uid() }));
+      return rows?.[0] || null;
+    },
+    async saveMyPrivate(data) {
+      const { phone, student_id, birth_date, emergency_contact, info } = data;
+      check(
+        await sb
+          .from('profile_private')
+          .upsert({ user_id: await uid(), phone, student_id, birth_date: birth_date || null, emergency_contact, info }, { onConflict: 'user_id' })
+      );
+    },
+    async listPrivate() {
+      const rows = check(await sb.rpc('private_profiles', {}));
+      return Object.fromEntries((rows || []).map((r) => [r.user_id, r]));
     },
     async uploadAvatar(blob) {
       const id = await uid();
@@ -109,10 +127,18 @@ export function createSupabaseApi(url, anonKey) {
 
     // ---------- profiles ----------
     async listProfiles() {
-      return check(await sb.from('profiles').select(PROFILE_SELECT).order('full_name'));
+      const [rows, asg] = await Promise.all([
+        sb.from('member_profiles').select('*').order('full_name').then(check),
+        sb.from('custom_role_assignments').select('id, user_id, expires_at, role_id, role:custom_roles(*)').then((r) => r.data || []),
+      ]);
+      return rows.map((p) => ({ ...p, assignments: asg.filter((a) => a.user_id === p.id && a.role) }));
     },
     async getProfile(id) {
-      return check(await sb.from('profiles').select(PROFILE_SELECT).eq('id', id).maybeSingle());
+      const [p, asg] = await Promise.all([
+        sb.from('member_profiles').select('*').eq('id', id).maybeSingle().then(check),
+        sb.from('custom_role_assignments').select('id, user_id, expires_at, role_id, role:custom_roles(*)').eq('user_id', id).then((r) => r.data || []),
+      ]);
+      return p ? { ...p, assignments: asg.filter((a) => a.role) } : null;
     },
     async setRole(id, role) {
       check(await sb.from('profiles').update({ role }).eq('id', id));
@@ -260,7 +286,7 @@ export function createSupabaseApi(url, anonKey) {
       return check(
         await sb
           .from('event_members')
-          .select('*, profile:profiles!user_id(id, full_name, avatar_url, email, phone, show_phone, study_field, role)')
+          .select('*, profile:profiles!user_id(id, full_name, avatar_url, headline, role)')
           .eq('event_id', eventId)
       );
     },
@@ -402,6 +428,102 @@ export function createSupabaseApi(url, anonKey) {
     async deleteCase(id) {
       check(await sb.from('cases').delete().eq('id', id));
     },
+    // ---------- role w wydarzeniach ----------
+    async listEventRoles(eventId) {
+      const [roles, asg] = await Promise.all([
+        sb.from('event_roles').select('*').eq('event_id', eventId).order('created_at').then(check),
+        sb.from('event_role_assignments').select('*').eq('event_id', eventId).then(check),
+      ]);
+      return { roles, assignments: asg };
+    },
+    async saveEventRole(r) {
+      const { id, created_at, ...rest } = r;
+      if (id) return check(await sb.from('event_roles').update(rest).eq('id', id).select().single());
+      return check(await sb.from('event_roles').insert(rest).select().single());
+    },
+    async deleteEventRole(id) {
+      check(await sb.from('event_roles').delete().eq('id', id));
+    },
+    async assignEventRole(eventId, roleId, userId, expiresAt) {
+      check(await sb.from('event_role_assignments').insert({ event_id: eventId, role_id: roleId, user_id: userId, expires_at: expiresAt || null }));
+    },
+    async revokeEventRole(assignmentId) {
+      check(await sb.from('event_role_assignments').delete().eq('id', assignmentId));
+    },
+
+    // ---------- społeczność ----------
+    async uploadCommunityImage(blob) {
+      const path = `${await uid()}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      check(await sb.storage.from('community').upload(path, blob, { contentType: 'image/jpeg' }));
+      return sb.storage.from('community').getPublicUrl(path).data.publicUrl;
+    },
+    async listPosts({ authorId, before, limit = 20 } = {}) {
+      let qy = sb.from('posts').select(POST_SELECT).order('created_at', { ascending: false }).limit(limit);
+      if (authorId) qy = qy.eq('author_id', authorId);
+      if (before) qy = qy.lt('created_at', before);
+      const rows = check(await qy);
+      return rows.map((p) => ({ ...p, comment_count: p.comments?.[0]?.count || 0, like_ids: (p.likes || []).map((l) => l.user_id) }));
+    },
+    async createPost({ body, image_url }) {
+      return check(await sb.from('posts').insert({ body, image_url: image_url || '' }).select('id').single());
+    },
+    async updatePost(id, body) {
+      check(await sb.from('posts').update({ body }).eq('id', id));
+    },
+    async deletePost(id) {
+      check(await sb.from('posts').delete().eq('id', id));
+    },
+    async setLike(postId, liked) {
+      if (liked) check(await sb.from('post_likes').upsert({ post_id: postId, user_id: await uid() }, { onConflict: 'post_id,user_id', ignoreDuplicates: true }));
+      else check(await sb.from('post_likes').delete().eq('post_id', postId).eq('user_id', await uid()));
+    },
+    async listLikers(postId) {
+      return check(await sb.from('post_likes').select('user_id, profile:profiles!user_id(id, full_name, avatar_url)').eq('post_id', postId));
+    },
+    async listComments(postId) {
+      return check(
+        await sb
+          .from('post_comments')
+          .select('*, author:profiles!author_id(id, full_name, avatar_url)')
+          .eq('post_id', postId)
+          .order('created_at')
+      );
+    },
+    async addComment(postId, body) {
+      check(await sb.from('post_comments').insert({ post_id: postId, body }));
+    },
+    async deleteComment(id) {
+      check(await sb.from('post_comments').delete().eq('id', id));
+    },
+    async listStories() {
+      const me = await uid();
+      const [stories, seen] = await Promise.all([
+        sb
+          .from('stories')
+          .select('*, author:profiles!author_id(id, full_name, avatar_url)')
+          .gt('expires_at', new Date().toISOString())
+          .order('created_at')
+          .then(check),
+        sb.from('story_views').select('story_id').eq('user_id', me).then((r) => r.data || []),
+      ]);
+      const seenIds = new Set(seen.map((x) => x.story_id));
+      return stories.map((s) => ({ ...s, seen: seenIds.has(s.id) || s.author_id === me }));
+    },
+    async createStory({ body, bg_color, image_url }) {
+      check(await sb.from('stories').insert({ body: body || '', bg_color, image_url: image_url || '' }));
+    },
+    async deleteStory(id) {
+      check(await sb.from('stories').delete().eq('id', id));
+    },
+    async markStorySeen(id) {
+      await sb.from('story_views').upsert({ story_id: id, user_id: await uid() }, { onConflict: 'story_id,user_id', ignoreDuplicates: true });
+    },
+    async listStoryViewers(id) {
+      return check(
+        await sb.from('story_views').select('viewed_at, profile:profiles!user_id(id, full_name, avatar_url)').eq('story_id', id).order('viewed_at')
+      );
+    },
+
     async countNewCases() {
       const { count, error } = await sb.from('cases').select('id', { count: 'exact', head: true }).eq('status', 'new');
       if (error) return 0;

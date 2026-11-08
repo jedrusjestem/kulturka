@@ -50,8 +50,12 @@ export default function MeetingDetail() {
       setAccess(acc);
       if (meeting?.event_id) {
         // spotkanie wydarzenia: lista obecności = zespół wydarzenia
-        const [team, ev] = await Promise.all([api.listEventMembers(meeting.event_id), api.getEvent(meeting.event_id)]);
-        setEventInfo({ event: ev, team, mine: team.find((t) => t.user_id === profile.id) || null });
+        const [team, ev, roles] = await Promise.all([
+          api.listEventMembers(meeting.event_id),
+          api.getEvent(meeting.event_id),
+          api.listEventRoles(meeting.event_id).catch(() => null),
+        ]);
+        setEventInfo({ event: ev, team, roles, mine: team.find((t) => t.user_id === profile.id) || null });
         const ids = new Set(team.filter((t) => t.status === 'accepted').map((t) => t.user_id));
         setPeople(p.filter((x) => ids.has(x.id) && isMemberRole(x.role)));
       } else {
@@ -97,17 +101,17 @@ export default function MeetingDetail() {
   };
 
   const exportCsv = () => {
-    const rows = [['Imię i nazwisko', 'E-mail', 'Obecność', 'Sposób', 'Godzina']];
+    const rows = [['Imię i nazwisko', 'Obecność', 'Sposób', 'Godzina']];
     people.forEach((p) => {
       const a = attMap[p.id];
-      rows.push([p.full_name, p.email, a ? (a.present ? 'obecny' : 'nieobecny') : '—', a?.method === 'qr' ? 'QR' : a ? 'ręcznie' : '', a ? fmtTime(a.marked_at) : '']);
+      rows.push([p.full_name, a ? (a.present ? 'obecny' : 'nieobecny') : '—', a?.method === 'qr' ? 'QR' : a ? 'ręcznie' : '', a ? fmtTime(a.marked_at) : '']);
     });
     downloadCsv(`obecnosc-${fmtDate(m.starts_at).replace(/\s/g, '-')}.csv`, rows);
   };
 
   const mine = attMap[profile.id];
   const isPast = new Date(m.starts_at) < new Date();
-  const mp = meetingPerms(profile, perms, m, access, eventInfo?.mine);
+  const mp = meetingPerms(profile, perms, m, access, eventInfo?.mine, eventInfo?.roles);
 
   return (
     <>

@@ -1,5 +1,5 @@
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
-import { Home, Megaphone, CalendarDays, Users, UserRound, QrCode, ShieldCheck, LogOut, Smartphone, PartyPopper, Bug, MessageSquareWarning } from 'lucide-react';
+import { Home, Megaphone, CalendarDays, Users, UserRound, QrCode, ShieldCheck, LogOut, Smartphone, PartyPopper, Bug, MessageSquareWarning, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import FeedbackModal from './FeedbackModal';
 import { useAuth } from '../auth';
@@ -28,6 +28,7 @@ export default function Layout() {
   const main = [
     { to: '/', icon: Home, label: 'Start', end: true },
     { to: '/wazne', icon: Megaphone, label: 'Ważne', count: counts.unreadImportant },
+    { to: '/spolecznosc', icon: Sparkles, label: 'Społeczność', short: 'Tablica' },
     { to: '/wydarzenia', icon: PartyPopper, label: 'Wydarzenia' },
     { to: '/spotkania', icon: CalendarDays, label: 'Spotkania' },
     { to: '/czlonkowie', icon: Users, label: 'Członkowie' },
@@ -142,7 +143,7 @@ export default function Layout() {
           {main.filter((n) => n.to !== '/czlonkowie').map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end}>
               <n.icon size={22} />
-              {n.label}
+              {n.short || n.label}
               {n.count > 0 && <span className="dot">{n.count}</span>}
             </NavLink>
           ))}

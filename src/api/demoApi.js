@@ -310,6 +310,44 @@ function seedEvents(db) {
   return db;
 }
 
+function seedSocial(db) {
+  const by = (n) => db.users.find((u) => u.full_name.startsWith(n));
+  const zofia = by('Zofia'), kacper = by('Kacper'), julia = by('Julia'), michal = by('Michał'), anna = by('Anna');
+  db.posts = [];
+  db.postLikes = [];
+  db.postComments = [];
+  db.stories = [];
+  db.storyViews = [];
+  db.private = db.private || {};
+  db.eventRoles = db.eventRoles || [];
+  db.eventRoleAssignments = db.eventRoleAssignments || [];
+  if (!zofia) return db;
+  // wszyscy przykładowi członkowie mają już uzupełnione dane poufne (oprócz osób oczekujących)
+  db.users.forEach((u, i) => {
+    if (u.role !== 'pending') db.private[u.id] = { phone: `600 100 ${200 + i}`, student_id: String(260100 + i), birth_date: null, emergency_contact: '', info: '' };
+  });
+  Object.assign(zofia, { headline: 'Grafika i plakaty 🎨', cover_color: '#EC4899', interests: ['grafika', 'typografia', 'kino'] });
+  Object.assign(kacper, { headline: 'Dźwięk i nagłośnienie', cover_color: '#0D2436', interests: ['muzyka', 'elektronika'] });
+  if (anna) Object.assign(anna, { headline: 'Przewodnicząca KKiP', interests: ['teatr', 'planszówki'] });
+  const post = (u, body, h, extra = {}) => {
+    const at = dayAt(0, h).toISOString();
+    const p = { id: uuid(), author_id: u.id, body, image_url: '', created_at: at, updated_at: at, ...extra };
+    db.posts.push(p);
+    return p;
+  };
+  const p1 = post(zofia, 'Skończyłam projekt plakatu na Noc Kultury! Co myślicie? 🎉\nWersja finalna będzie w piątek.', 10);
+  const p2 = post(kacper, 'Ktoś ma wolny przedłużacz 10 m na sobotnią próbę? 🙏', 12);
+  const p3 = post(julia || zofia, 'Dzięki wszystkim za wczorajsze spotkanie – świetna energia! 💙', 8);
+  [michal, kacper, anna].forEach((u) => u && db.postLikes.push({ post_id: p1.id, user_id: u.id, created_at: now() }));
+  if (michal) db.postComments.push({ id: uuid(), post_id: p1.id, author_id: michal.id, body: 'Wygląda świetnie!', created_at: now() });
+  if (anna) db.postComments.push({ id: uuid(), post_id: p2.id, author_id: anna.id, body: 'Jest jeden w magazynie C-13.', created_at: now() });
+  if (zofia) db.postLikes.push({ post_id: p3.id, user_id: zofia.id, created_at: now() });
+  const c = new Date(Date.now() - 2 * 3600e3);
+  db.stories.push({ id: uuid(), author_id: zofia.id, body: 'Szkice plakatów ✏️', bg_color: '#EC4899', image_url: '', created_at: c.toISOString(), expires_at: new Date(c.getTime() + 864e5).toISOString() });
+  db.stories.push({ id: uuid(), author_id: kacper.id, body: 'Test nagłośnienia w C-13 🔊', bg_color: '#0D2436', image_url: '', created_at: new Date(Date.now() - 3600e3).toISOString(), expires_at: new Date(Date.now() + 23 * 3600e3).toISOString() });
+  return db;
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
@@ -317,12 +355,13 @@ function load() {
       const d = JSON.parse(raw);
       if (!d.events) seedEvents(d);
       if (!d.cases) d.cases = [];
+      if (!d.posts) seedSocial(d);
       return d;
     }
   } catch {
     /* ignore */
   }
-  const db = seedEvents(seed());
+  const db = seedSocial(seedEvents(seed()));
   localStorage.setItem(KEY, JSON.stringify(db));
   return db;
 }
@@ -358,7 +397,7 @@ function activeRoleIds(u) {
 function hasMeetingPerm(u, meetingId, p) {
   const mt = db.meetings.find((x) => x.id === meetingId);
   if (mt?.event_id) {
-    if (isEvStaff(u, mt.event_id)) return true;
+    if (canEv(u, mt.event_id, p === 'edit' ? 'meetings' : 'scan')) return true;
     const ids0 = activeRoleIds(u);
     return (db.meetingAccess || []).some((x) => x.meeting_id === meetingId && ids0.includes(x.role_id) && (p === 'edit' ? x.can_edit : x.can_scan));
   }
@@ -377,14 +416,51 @@ function evRole(u, eventId) {
 const isEvAdmin = (u, e) => isChair(u) || (isActive(u) && evRole(u, e) === 'coordinator');
 const isEvStaff = (u, e) => isEvAdmin(u, e) || (isActive(u) && evRole(u, e) === 'staff');
 const isEvMember = (u, e) => isEvStaff(u, e) || (isActive(u) && !!evRole(u, e));
+function hasEvPerm(u, e, p) {
+  if (!isActive(u) || !evRole(u, e)) return false;
+  const f = { post: 'can_post', team: 'can_manage_team', meetings: 'can_manage_meetings', scan: 'can_scan' }[p];
+  return (db.eventRoleAssignments || []).some((a) => {
+    if (a.event_id !== e || a.user_id !== u.id || (a.expires_at && new Date(a.expires_at) < new Date())) return false;
+    const r = (db.eventRoles || []).find((x) => x.id === a.role_id);
+    return r && r[f];
+  });
+}
+const canEv = (u, e, p) => isEvStaff(u, e) || hasEvPerm(u, e, p);
 function canSeeMeeting(u, m) {
   return isActive(u) && (!m.event_id || isEvMember(u, m.event_id));
 }
 function deny(cond, msg = 'Brak uprawnień') {
   if (!cond) throw new Error(msg);
 }
-function withAssignments(u) {
-  if (!u) return null;
+const PRIV_DEFAULT = { study: true, bio: true, interests: true, socials: true };
+/** Widok profilu jak member_profiles: ukryte pola puste dla innych, e-mail/telefon nigdy w profilu */
+function maskProfile(u) {
+  const viewer = me();
+  const full = viewer && (viewer.id === u.id || isBoard(viewer));
+  const pv = { ...PRIV_DEFAULT, ...(u.privacy || {}) };
+  const show = (k) => full || pv[k] !== false;
+  const { email, phone, show_email, show_phone, ...rest } = u;
+  return {
+    ...rest,
+    full_access: !!full,
+    headline: u.headline || '',
+    cover_color: u.cover_color || '#7DC9EE',
+    interests: show('interests') ? u.interests || [] : [],
+    faculty: show('study') ? u.faculty : '',
+    study_field: show('study') ? u.study_field : '',
+    study_year: show('study') ? u.study_year : '',
+    bio: show('bio') ? u.bio : '',
+    instagram: show('socials') ? u.instagram : '',
+    facebook: show('socials') ? u.facebook : '',
+    website: show('socials') ? u.website || '' : '',
+    privacy: full ? pv : null,
+    last_seen_at: full ? u.last_seen_at : null,
+    notify_email: viewer?.id === u.id ? u.notify_email : undefined,
+  };
+}
+function withAssignments(u0) {
+  if (!u0) return null;
+  const u = maskProfile(u0);
   return {
     ...u,
     assignments: db.assignments
@@ -508,10 +584,33 @@ export function createDemoApi() {
       const target = db.users.find((x) => x.id === id);
       deny(target && (u.id === id || isBoard(u)));
       const clean = { ...patch };
-      ['id', 'email', 'created_at', 'approved_by', 'approved_at', 'role', 'consent_at', 'assignments'].forEach((k) => delete clean[k]);
+      ['id', 'email', 'phone', 'created_at', 'approved_by', 'approved_at', 'role', 'consent_at', 'assignments', 'full_access'].forEach((k) => delete clean[k]);
       Object.assign(target, clean, { updated_at: now() });
       save();
       return withAssignments(target);
+    },
+    async getMyPrivate() {
+      const u = me();
+      const p = (db.private || {})[u.id] || {};
+      return { user_id: u.id, email: u.email, phone: p.phone || '', student_id: p.student_id || '', birth_date: p.birth_date || null, emergency_contact: p.emergency_contact || '', info: p.info || '' };
+    },
+    async saveMyPrivate(data) {
+      await delay();
+      const u = me();
+      db.private = db.private || {};
+      const { phone, student_id, birth_date, emergency_contact, info } = data;
+      db.private[u.id] = { phone, student_id, birth_date: birth_date || null, emergency_contact, info, updated_at: now() };
+      save();
+    },
+    async listPrivate() {
+      const u = me();
+      const out = {};
+      db.users.forEach((x) => {
+        if (x.id !== u.id && !isBoard(u)) return;
+        const p = (db.private || {})[x.id] || {};
+        out[x.id] = { user_id: x.id, email: x.email, phone: p.phone || '', student_id: p.student_id || '', birth_date: p.birth_date || null, emergency_contact: p.emergency_contact || '', info: p.info || '' };
+      });
+      return out;
     },
     async uploadAvatar(blob) {
       return await new Promise((res) => {
@@ -691,7 +790,7 @@ export function createDemoApi() {
         save();
         return x;
       }
-      deny(m.event_id ? isEvStaff(me(), m.event_id) : hasPerm(me(), 'manage_meetings'));
+      deny(m.event_id ? canEv(me(), m.event_id, 'meetings') : hasPerm(me(), 'manage_meetings'));
       const x = {
         ...m,
         id: uuid(),
@@ -829,8 +928,11 @@ export function createDemoApi() {
     async listEventMembers(eventId) {
       const u = me();
       return db.eventMembers
-        .filter((m) => m.event_id === eventId && (m.user_id === u.id || isEvStaff(u, eventId) || m.status === 'accepted'))
-        .map((m) => ({ ...m, profile: db.users.find((x) => x.id === m.user_id) }));
+        .filter((m) => m.event_id === eventId && (m.user_id === u.id || canEv(u, eventId, 'team') || m.status === 'accepted'))
+        .map((m) => {
+          const x = db.users.find((y) => y.id === m.user_id);
+          return { ...m, profile: x ? { id: x.id, full_name: x.full_name, avatar_url: x.avatar_url, headline: x.headline || '', role: x.role } : null };
+        });
     },
     async listMyEventMemberships() {
       return db.eventMembers.filter((m) => m.user_id === sessionUserId());
@@ -854,7 +956,7 @@ export function createDemoApi() {
         deny(isChair(u), 'Koordynatora głównego wyznacza przewodniczący komisji');
         db.eventMembers = db.eventMembers.map((m) => (m.event_id === eventId && m.role === 'coordinator' ? { ...m, role: 'staff' } : m));
       } else if (role === 'staff') deny(isEvAdmin(u, eventId), 'Do sztabu dodaje koordynator główny');
-      else deny(isEvStaff(u, eventId), 'Brak uprawnień');
+      else deny(canEv(u, eventId, 'team'), 'Brak uprawnień');
       db.eventMembers = db.eventMembers.filter((m) => !(m.event_id === eventId && m.user_id === userId));
       db.eventMembers.push({ event_id: eventId, user_id: userId, role, status: 'accepted', note: '', decided_by: u.id, decided_at: now(), created_at: now() });
       save();
@@ -867,7 +969,7 @@ export function createDemoApi() {
       const role = patch.role ?? m.role;
       if ((role === 'coordinator' || m.role === 'coordinator') && role !== m.role) deny(isChair(u), 'Koordynatora głównego wyznacza przewodniczący komisji');
       if (role === 'staff' || (m.role === 'staff' && m.status === 'accepted')) deny(isEvAdmin(u, eventId), 'O sztabie decyduje koordynator główny');
-      deny(isEvStaff(u, eventId));
+      deny(canEv(u, eventId, 'team'));
       Object.assign(m, patch, { decided_by: u.id, decided_at: now() });
       save();
     },
@@ -878,7 +980,7 @@ export function createDemoApi() {
       if (m && m.user_id !== u.id) {
         if (m.role === 'coordinator') deny(isChair(u), 'Koordynatora głównego może usunąć tylko przewodniczący komisji');
         if (m.role === 'staff') deny(isEvAdmin(u, eventId), 'Członków sztabu usuwa koordynator główny');
-        deny(isEvStaff(u, eventId));
+        deny(canEv(u, eventId, 'team'));
       }
       db.eventMembers = db.eventMembers.filter((x) => x !== m);
       save();
@@ -888,7 +990,7 @@ export function createDemoApi() {
       const u = me();
       if (!isEvMember(u, eventId)) return [];
       return db.eventAnnouncements
-        .filter((a) => a.event_id === eventId && (a.status === 'published' || a.author_id === u.id || isEvStaff(u, eventId)))
+        .filter((a) => a.event_id === eventId && (a.status === 'published' || a.author_id === u.id || canEv(u, eventId, 'post')))
         .map((a) => {
           const au = db.users.find((x) => x.id === a.author_id);
           return {
@@ -903,7 +1005,7 @@ export function createDemoApi() {
       await delay();
       const u = me();
       deny(isEvMember(u, event_id));
-      const direct = isEvStaff(u, event_id);
+      const direct = canEv(u, event_id, 'post');
       const a = {
         id: uuid(), event_id, title, body, author_id: u.id, status: direct ? 'published' : 'pending', pinned: false,
         notify: direct && !!notify, reviewed_by: direct ? u.id : null, reviewed_at: direct ? now() : null, created_at: now(),
@@ -915,7 +1017,7 @@ export function createDemoApi() {
     async updateEventAnnouncement(id, patch) {
       const u = me();
       const a = db.eventAnnouncements.find((x) => x.id === id);
-      const staff = isEvStaff(u, a.event_id);
+      const staff = canEv(u, a.event_id, 'post');
       deny(staff || (a.author_id === u.id && a.status === 'pending'));
       if (!staff) {
         delete patch.status;
@@ -928,7 +1030,7 @@ export function createDemoApi() {
     async deleteEventAnnouncement(id) {
       const u = me();
       const a = db.eventAnnouncements.find((x) => x.id === id);
-      deny(isEvStaff(u, a.event_id) || a.author_id === u.id);
+      deny(canEv(u, a.event_id, 'post') || a.author_id === u.id);
       db.eventAnnouncements = db.eventAnnouncements.filter((x) => x.id !== id);
       db.polls = db.polls.filter((p) => p.event_announcement_id !== id);
       save();
@@ -1066,6 +1168,185 @@ export function createDemoApi() {
       db.cases = db.cases.filter((x) => x.id !== id);
       save();
     },
+    // ---------- role w wydarzeniach ----------
+    async listEventRoles(eventId) {
+      return {
+        roles: (db.eventRoles || []).filter((r) => r.event_id === eventId),
+        assignments: (db.eventRoleAssignments || []).filter((a) => a.event_id === eventId),
+      };
+    },
+    async saveEventRole(r) {
+      deny(isEvAdmin(me(), r.event_id), 'Role w wydarzeniu tworzy koordynator główny');
+      db.eventRoles = db.eventRoles || [];
+      if (r.id) {
+        const x = db.eventRoles.find((y) => y.id === r.id);
+        Object.assign(x, r);
+        save();
+        return x;
+      }
+      const x = { color: '#45B0E5', description: '', can_post: false, can_manage_team: false, can_manage_meetings: false, can_scan: false, ...r, id: uuid(), created_at: now() };
+      db.eventRoles.push(x);
+      save();
+      return x;
+    },
+    async deleteEventRole(id) {
+      const r = (db.eventRoles || []).find((x) => x.id === id);
+      deny(r && isEvAdmin(me(), r.event_id));
+      db.eventRoles = db.eventRoles.filter((x) => x.id !== id);
+      db.eventRoleAssignments = (db.eventRoleAssignments || []).filter((a) => a.role_id !== id);
+      save();
+    },
+    async assignEventRole(eventId, roleId, userId, expiresAt) {
+      deny(isEvAdmin(me(), eventId));
+      deny(db.eventMembers.some((m) => m.event_id === eventId && m.user_id === userId && m.status === 'accepted'), 'Rolę można nadać tylko osobie z zespołu wydarzenia');
+      db.eventRoleAssignments = db.eventRoleAssignments || [];
+      if (db.eventRoleAssignments.some((a) => a.role_id === roleId && a.user_id === userId)) throw new Error('Ta osoba ma już tę rolę');
+      db.eventRoleAssignments.push({ id: uuid(), event_id: eventId, role_id: roleId, user_id: userId, expires_at: expiresAt || null, granted_by: me().id, created_at: now() });
+      save();
+    },
+    async revokeEventRole(assignmentId) {
+      const a = (db.eventRoleAssignments || []).find((x) => x.id === assignmentId);
+      deny(a && isEvAdmin(me(), a.event_id));
+      db.eventRoleAssignments = db.eventRoleAssignments.filter((x) => x.id !== assignmentId);
+      save();
+    },
+
+    // ---------- społeczność ----------
+    async uploadCommunityImage(blob) {
+      return await new Promise((res) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.readAsDataURL(blob);
+      });
+    },
+    async listPosts({ authorId, before, limit = 20 } = {}) {
+      await delay(60);
+      deny(isActive(me()));
+      const prof = (id) => {
+        const x = db.users.find((y) => y.id === id);
+        return x ? { id: x.id, full_name: x.full_name, avatar_url: x.avatar_url, headline: x.headline || '' } : null;
+      };
+      return (db.posts || [])
+        .filter((p) => (!authorId || p.author_id === authorId) && (!before || p.created_at < before))
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, limit)
+        .map((p) => ({
+          ...p,
+          author: prof(p.author_id),
+          like_ids: (db.postLikes || []).filter((l) => l.post_id === p.id).map((l) => l.user_id),
+          comment_count: (db.postComments || []).filter((c) => c.post_id === p.id).length,
+        }));
+    },
+    async createPost({ body, image_url }) {
+      await delay();
+      const u = me();
+      deny(isActive(u));
+      db.posts = db.posts || [];
+      const p = { id: uuid(), author_id: u.id, body: body || '', image_url: image_url || '', created_at: now(), updated_at: now() };
+      db.posts.push(p);
+      save();
+      return { id: p.id };
+    },
+    async updatePost(id, body) {
+      const p = db.posts.find((x) => x.id === id);
+      deny(p && p.author_id === me().id);
+      p.body = body;
+      p.updated_at = now();
+      save();
+    },
+    async deletePost(id) {
+      const u = me();
+      const p = db.posts.find((x) => x.id === id);
+      deny(p && (p.author_id === u.id || isBoard(u)));
+      db.posts = db.posts.filter((x) => x.id !== id);
+      db.postLikes = (db.postLikes || []).filter((l) => l.post_id !== id);
+      db.postComments = (db.postComments || []).filter((c) => c.post_id !== id);
+      save();
+    },
+    async setLike(postId, liked) {
+      const uid = sessionUserId();
+      db.postLikes = (db.postLikes || []).filter((l) => !(l.post_id === postId && l.user_id === uid));
+      if (liked) db.postLikes.push({ post_id: postId, user_id: uid, created_at: now() });
+      save();
+    },
+    async listLikers(postId) {
+      return (db.postLikes || [])
+        .filter((l) => l.post_id === postId)
+        .map((l) => {
+          const x = db.users.find((y) => y.id === l.user_id);
+          return { user_id: l.user_id, profile: x ? { id: x.id, full_name: x.full_name, avatar_url: x.avatar_url } : null };
+        });
+    },
+    async listComments(postId) {
+      await delay(40);
+      return (db.postComments || [])
+        .filter((c) => c.post_id === postId)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((c) => {
+          const x = db.users.find((y) => y.id === c.author_id);
+          return { ...c, author: x ? { id: x.id, full_name: x.full_name, avatar_url: x.avatar_url } : null };
+        });
+    },
+    async addComment(postId, body) {
+      await delay();
+      db.postComments = db.postComments || [];
+      db.postComments.push({ id: uuid(), post_id: postId, author_id: sessionUserId(), body, created_at: now() });
+      save();
+    },
+    async deleteComment(id) {
+      const u = me();
+      const c = db.postComments.find((x) => x.id === id);
+      const p = c && db.posts.find((x) => x.id === c.post_id);
+      deny(c && (c.author_id === u.id || isBoard(u) || p?.author_id === u.id));
+      db.postComments = db.postComments.filter((x) => x.id !== id);
+      save();
+    },
+    async listStories() {
+      const u = me();
+      const t = new Date().toISOString();
+      return (db.stories || [])
+        .filter((s) => s.expires_at > t)
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((s) => {
+          const x = db.users.find((y) => y.id === s.author_id);
+          return {
+            ...s,
+            author: x ? { id: x.id, full_name: x.full_name, avatar_url: x.avatar_url } : null,
+            seen: s.author_id === u.id || (db.storyViews || []).some((v) => v.story_id === s.id && v.user_id === u.id),
+          };
+        });
+    },
+    async createStory({ body, bg_color, image_url }) {
+      await delay();
+      db.stories = db.stories || [];
+      const c = new Date();
+      db.stories.push({ id: uuid(), author_id: sessionUserId(), body: body || '', bg_color, image_url: image_url || '', created_at: c.toISOString(), expires_at: new Date(c.getTime() + 864e5).toISOString() });
+      save();
+    },
+    async deleteStory(id) {
+      const u = me();
+      const s = db.stories.find((x) => x.id === id);
+      deny(s && (s.author_id === u.id || isBoard(u)));
+      db.stories = db.stories.filter((x) => x.id !== id);
+      save();
+    },
+    async markStorySeen(id) {
+      const uid = sessionUserId();
+      db.storyViews = db.storyViews || [];
+      if (!db.storyViews.some((v) => v.story_id === id && v.user_id === uid)) db.storyViews.push({ story_id: id, user_id: uid, viewed_at: now() });
+      save();
+    },
+    async listStoryViewers(id) {
+      const s = db.stories.find((x) => x.id === id);
+      if (!s || s.author_id !== sessionUserId()) return [];
+      return (db.storyViews || [])
+        .filter((v) => v.story_id === id && v.user_id !== s.author_id)
+        .map((v) => {
+          const x = db.users.find((y) => y.id === v.user_id);
+          return { viewed_at: v.viewed_at, profile: x ? { id: x.id, full_name: x.full_name, avatar_url: x.avatar_url } : null };
+        });
+    },
+
     async countNewCases() {
       return isBoard(me()) ? (db.cases || []).filter((c) => c.status === 'new').length : 0;
     },

@@ -1324,3 +1324,470 @@ revoke execute on function public.case_status(text[]) from public, anon;
 grant execute on function public.case_status(text[]) to authenticated;
 revoke execute on function public.case_board_notes() from public, anon;
 grant execute on function public.case_board_notes() to authenticated;
+
+
+-- #####################################################################
+--  CZĘŚĆ 4: PRYWATNOŚĆ PROFILI, SPOŁECZNOŚĆ, ROLE W WYDARZENIACH
+-- #####################################################################
+
+-- =====================================================================
+--  4a. Dane poufne – widzi tylko zarząd (zarząd, przewodniczący, admin) i właściciel
+-- =====================================================================
+alter table public.profiles add column if not exists headline text not null default '' check (char_length(headline) <= 120);
+alter table public.profiles add column if not exists cover_color text not null default '#7DC9EE';
+alter table public.profiles add column if not exists interests text[] not null default '{}' check (cardinality(interests) <= 20);
+alter table public.profiles add column if not exists website text not null default '' check (char_length(website) <= 200);
+alter table public.profiles add column if not exists privacy jsonb not null
+  default '{"study": true, "bio": true, "interests": true, "socials": true}'::jsonb;
+
+create table if not exists public.profile_private (
+  user_id            uuid primary key references public.profiles (id) on delete cascade,
+  phone              text not null default '' check (char_length(phone) <= 30),
+  student_id         text not null default '' check (char_length(student_id) <= 20),
+  birth_date         date,
+  emergency_contact  text not null default '' check (char_length(emergency_contact) <= 200),
+  info               text not null default '' check (char_length(info) <= 1000),
+  updated_at         timestamptz not null default now()
+);
+-- przeniesienie numerów telefonu ze starego, publicznego pola
+insert into public.profile_private (user_id, phone)
+select id, phone from public.profiles where coalesce(phone, '') <> ''
+on conflict (user_id) do nothing;
+update public.profiles set phone = '' where coalesce(phone, '') <> '';
+
+create or replace function public.profile_private_touch() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  new.updated_at := now();
+  if tg_op = 'INSERT' then new.user_id := coalesce(auth.uid(), new.user_id); end if;
+  if tg_op = 'UPDATE' then new.user_id := old.user_id; end if;
+  return new;
+end $$;
+drop trigger if exists profile_private_touch on public.profile_private;
+create trigger profile_private_touch before insert or update on public.profile_private
+  for each row execute function public.profile_private_touch();
+
+alter table public.profile_private enable row level security;
+create policy pp_read   on public.profile_private for select to authenticated using (user_id = auth.uid() or public.is_board());
+create policy pp_insert on public.profile_private for insert to authenticated with check (user_id = auth.uid());
+create policy pp_update on public.profile_private for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- Dane poufne + e-mail (dla zarządu: wszystkich; dla członka: tylko własne)
+create or replace function public.private_profiles(p_user uuid default null)
+returns table (user_id uuid, email text, phone text, student_id text, birth_date date, emergency_contact text, info text, updated_at timestamptz)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.email, coalesce(pp.phone, ''), coalesce(pp.student_id, ''), pp.birth_date,
+         coalesce(pp.emergency_contact, ''), coalesce(pp.info, ''), pp.updated_at
+  from public.profiles p
+  left join public.profile_private pp on pp.user_id = p.id
+  where (p.id = auth.uid() or public.is_board()) and (p_user is null or p.id = p_user)
+$$;
+
+-- Widoczność profilu: pola ukryte przez właściciela są puste dla innych członków (zarząd widzi wszystko)
+create or replace view public.member_profiles as
+select
+  p.id, p.full_name, p.role, p.avatar_url, p.headline, p.cover_color, p.approved_at, p.created_at,
+  (p.id = auth.uid() or public.is_board()) as full_access,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'study')::boolean, true) then p.faculty else '' end as faculty,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'study')::boolean, true) then p.study_field else '' end as study_field,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'study')::boolean, true) then p.study_year else '' end as study_year,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'bio')::boolean, true) then p.bio else '' end as bio,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'interests')::boolean, true) then p.interests else '{}'::text[] end as interests,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'socials')::boolean, true) then p.instagram else '' end as instagram,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'socials')::boolean, true) then p.facebook else '' end as facebook,
+  case when p.id = auth.uid() or public.is_board() or coalesce((p.privacy ->> 'socials')::boolean, true) then p.website else '' end as website,
+  case when p.id = auth.uid() or public.is_board() then p.privacy end as privacy,
+  case when p.id = auth.uid() or public.is_board() then p.last_seen_at end as last_seen_at,
+  case when p.id = auth.uid() or public.is_board() then p.consent_at end as consent_at,
+  case when p.id = auth.uid() then p.notify_email end as notify_email
+from public.profiles p
+where p.id = auth.uid()
+   or public.is_board()
+   or (public.is_active_member() and p.role in ('member', 'board', 'chair', 'admin', 'alumni'));
+
+revoke all on public.member_profiles from anon;
+grant select on public.member_profiles to authenticated;
+
+-- Tabela profili: zwykłe zapytania widzą tylko pola zawsze publiczne (reszta przez widok / funkcję)
+revoke select on public.profiles from anon, authenticated;
+grant select (id, full_name, role, avatar_url, headline, cover_color, approved_at, created_at, updated_at)
+  on public.profiles to authenticated;
+
+revoke execute on function public.private_profiles(uuid) from public, anon;
+grant execute on function public.private_profiles(uuid) to authenticated;
+
+-- =====================================================================
+--  4b. Społeczność: posty, polubienia, komentarze, story (24 h)
+-- =====================================================================
+create table if not exists public.posts (
+  id          uuid primary key default gen_random_uuid(),
+  author_id   uuid not null references public.profiles (id) on delete cascade,
+  body        text not null default '' check (char_length(body) <= 3000),
+  image_url   text not null default '',
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  check (body <> '' or image_url <> '')
+);
+create index if not exists posts_created_idx on public.posts (created_at desc);
+create index if not exists posts_author_idx on public.posts (author_id, created_at desc);
+
+create table if not exists public.post_likes (
+  post_id     uuid not null references public.posts (id) on delete cascade,
+  user_id     uuid not null references public.profiles (id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (post_id, user_id)
+);
+
+create table if not exists public.post_comments (
+  id          uuid primary key default gen_random_uuid(),
+  post_id     uuid not null references public.posts (id) on delete cascade,
+  author_id   uuid not null references public.profiles (id) on delete cascade,
+  body        text not null check (char_length(body) between 1 and 1000),
+  created_at  timestamptz not null default now()
+);
+create index if not exists post_comments_idx on public.post_comments (post_id, created_at);
+
+create table if not exists public.stories (
+  id          uuid primary key default gen_random_uuid(),
+  author_id   uuid not null references public.profiles (id) on delete cascade,
+  image_url   text not null default '',
+  body        text not null default '' check (char_length(body) <= 300),
+  bg_color    text not null default '#45B0E5',
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null default now() + interval '24 hours',
+  check (image_url <> '' or body <> '')
+);
+create index if not exists stories_exp_idx on public.stories (expires_at);
+
+create table if not exists public.story_views (
+  story_id   uuid not null references public.stories (id) on delete cascade,
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  viewed_at  timestamptz not null default now(),
+  primary key (story_id, user_id)
+);
+
+-- autor/użytkownik zawsze = zalogowana osoba, story wygasa po 24 h
+create or replace function public.community_touch() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then return new; end if;
+  if tg_table_name in ('posts', 'post_comments', 'stories') then
+    if tg_op = 'INSERT' then
+      new.author_id := auth.uid();
+      new.created_at := now();
+    else
+      new.author_id := old.author_id;
+      new.created_at := old.created_at;
+    end if;
+  end if;
+  if tg_table_name = 'posts' then new.updated_at := now(); end if;
+  if tg_table_name = 'stories' then new.expires_at := new.created_at + interval '24 hours'; end if;
+  if tg_table_name in ('post_likes', 'story_views') then new.user_id := auth.uid(); end if;
+  return new;
+end $$;
+drop trigger if exists community_touch on public.posts;
+create trigger community_touch before insert or update on public.posts for each row execute function public.community_touch();
+drop trigger if exists community_touch on public.post_comments;
+create trigger community_touch before insert or update on public.post_comments for each row execute function public.community_touch();
+drop trigger if exists community_touch on public.stories;
+create trigger community_touch before insert or update on public.stories for each row execute function public.community_touch();
+drop trigger if exists community_touch on public.post_likes;
+create trigger community_touch before insert on public.post_likes for each row execute function public.community_touch();
+drop trigger if exists community_touch on public.story_views;
+create trigger community_touch before insert on public.story_views for each row execute function public.community_touch();
+
+alter table public.posts         enable row level security;
+alter table public.post_likes    enable row level security;
+alter table public.post_comments enable row level security;
+alter table public.stories       enable row level security;
+alter table public.story_views   enable row level security;
+
+create policy posts_read   on public.posts for select to authenticated using (public.is_active_member());
+create policy posts_insert on public.posts for insert to authenticated with check (public.is_active_member() and author_id = auth.uid());
+create policy posts_update on public.posts for update to authenticated using (author_id = auth.uid()) with check (author_id = auth.uid());
+create policy posts_delete on public.posts for delete to authenticated using (author_id = auth.uid() or public.is_board());
+
+create policy likes_read   on public.post_likes for select to authenticated using (public.is_active_member());
+create policy likes_insert on public.post_likes for insert to authenticated with check (public.is_active_member() and user_id = auth.uid());
+create policy likes_delete on public.post_likes for delete to authenticated using (user_id = auth.uid());
+
+create policy comments_read   on public.post_comments for select to authenticated using (public.is_active_member());
+create policy comments_insert on public.post_comments for insert to authenticated with check (public.is_active_member() and author_id = auth.uid());
+create policy comments_delete on public.post_comments for delete to authenticated using (
+  author_id = auth.uid() or public.is_board()
+  or exists (select 1 from public.posts p where p.id = post_id and p.author_id = auth.uid())
+);
+
+create policy stories_read   on public.stories for select to authenticated
+  using (public.is_active_member() and (expires_at > now() or author_id = auth.uid()));
+create policy stories_insert on public.stories for insert to authenticated with check (public.is_active_member() and author_id = auth.uid());
+create policy stories_delete on public.stories for delete to authenticated using (author_id = auth.uid() or public.is_board());
+
+create policy sviews_read on public.story_views for select to authenticated using (
+  user_id = auth.uid() or exists (select 1 from public.stories s where s.id = story_id and s.author_id = auth.uid())
+);
+create policy sviews_insert on public.story_views for insert to authenticated with check (public.is_active_member() and user_id = auth.uid());
+
+-- zdjęcia do postów i story (publiczny bucket, każdy wgrywa tylko do swojego folderu)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('community', 'community', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do update set public = true, file_size_limit = 5242880,
+  allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp'];
+drop policy if exists "community insert own" on storage.objects;
+drop policy if exists "community delete own" on storage.objects;
+create policy "community insert own" on storage.objects for insert to authenticated
+  with check (bucket_id = 'community' and (storage.foldername(name))[1] = auth.uid()::text);
+create policy "community delete own" on storage.objects for delete to authenticated
+  using (bucket_id = 'community' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- =====================================================================
+--  4c. Własne role w wydarzeniach (tworzy koordynator główny / przewodniczący)
+-- =====================================================================
+create table if not exists public.event_roles (
+  id                   uuid primary key default gen_random_uuid(),
+  event_id             uuid not null references public.events (id) on delete cascade,
+  name                 text not null check (char_length(name) between 1 and 60),
+  color                text not null default '#45B0E5',
+  description          text not null default '',
+  can_post             boolean not null default false,   -- publikuje w Ważne wydarzenia bez akceptacji i akceptuje wpisy
+  can_manage_team      boolean not null default false,   -- przyjmuje / dodaje / usuwa kadrę
+  can_manage_meetings  boolean not null default false,   -- tworzy i edytuje spotkania wydarzenia
+  can_scan             boolean not null default false,   -- sprawdza obecność na spotkaniach wydarzenia
+  created_at           timestamptz not null default now()
+);
+
+create table if not exists public.event_role_assignments (
+  id          uuid primary key default gen_random_uuid(),
+  event_id    uuid not null references public.events (id) on delete cascade,
+  role_id     uuid not null references public.event_roles (id) on delete cascade,
+  user_id     uuid not null references public.profiles (id) on delete cascade,
+  expires_at  timestamptz,
+  granted_by  uuid references public.profiles (id) on delete set null,
+  created_at  timestamptz not null default now(),
+  unique (role_id, user_id)
+);
+
+-- p: 'post' | 'team' | 'meetings' | 'scan'
+create or replace function public.has_event_perm(p_event uuid, p text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.is_active_member() and exists (
+    select 1 from public.event_role_assignments a
+    join public.event_roles r on r.id = a.role_id
+    join public.event_members m on m.event_id = a.event_id and m.user_id = a.user_id and m.status = 'accepted'
+    where a.event_id = p_event and a.user_id = auth.uid()
+      and (a.expires_at is null or a.expires_at > now())
+      and case p when 'post' then r.can_post when 'team' then r.can_manage_team
+                 when 'meetings' then r.can_manage_meetings when 'scan' then r.can_scan else false end
+  )
+$$;
+
+-- sztab (i wyżej) albo rola wydarzenia z danym uprawnieniem
+create or replace function public.can_event(p_event uuid, p text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.is_event_staff(p_event) or public.has_event_perm(p_event, p)
+$$;
+
+create or replace function public.event_role_assign_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from public.event_roles r where r.id = new.role_id and r.event_id = new.event_id) then
+    raise exception 'Rola nie należy do tego wydarzenia';
+  end if;
+  if not exists (select 1 from public.event_members m where m.event_id = new.event_id and m.user_id = new.user_id and m.status = 'accepted') then
+    raise exception 'Rolę można nadać tylko osobie z zespołu wydarzenia';
+  end if;
+  new.granted_by := coalesce(auth.uid(), new.granted_by);
+  return new;
+end $$;
+drop trigger if exists event_role_assign_guard on public.event_role_assignments;
+create trigger event_role_assign_guard before insert or update on public.event_role_assignments
+  for each row execute function public.event_role_assign_guard();
+
+alter table public.event_roles            enable row level security;
+alter table public.event_role_assignments enable row level security;
+create policy evroles_read  on public.event_roles for select to authenticated using (public.is_event_member(event_id));
+create policy evroles_write on public.event_roles for all to authenticated
+  using (public.is_event_admin(event_id)) with check (public.is_event_admin(event_id));
+create policy evra_read  on public.event_role_assignments for select to authenticated using (public.is_event_member(event_id));
+create policy evra_write on public.event_role_assignments for all to authenticated
+  using (public.is_event_admin(event_id)) with check (public.is_event_admin(event_id));
+
+-- Spotkania wydarzenia: także role wydarzenia z uprawnieniem do spotkań / obecności
+create or replace function public.has_meeting_perm(p_meeting uuid, p text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select case
+    when (select event_id from public.meetings where id = p_meeting) is not null then
+      public.can_event((select event_id from public.meetings where id = p_meeting), case p when 'edit' then 'meetings' else 'scan' end)
+      or (
+        public.is_active_member() and exists (
+          select 1 from public.meeting_role_access mra
+          join public.custom_role_assignments a on a.role_id = mra.role_id
+          where mra.meeting_id = p_meeting and a.user_id = auth.uid()
+            and (a.expires_at is null or a.expires_at > now())
+            and case p when 'edit' then mra.can_edit when 'scan' then mra.can_scan else false end
+        )
+      )
+    else
+      public.has_perm(case p when 'edit' then 'manage_meetings' else 'scan' end)
+      or (
+        public.is_active_member() and exists (
+          select 1 from public.meeting_role_access mra
+          join public.custom_role_assignments a on a.role_id = mra.role_id
+          where mra.meeting_id = p_meeting and a.user_id = auth.uid()
+            and (a.expires_at is null or a.expires_at > now())
+            and case p when 'edit' then mra.can_edit when 'scan' then mra.can_scan else false end
+        )
+      )
+      or (
+        p = 'edit' and public.has_perm('edit_own')
+        and exists (select 1 from public.meetings m where m.id = p_meeting and m.created_by = auth.uid())
+      )
+  end
+$$;
+
+drop policy if exists meet_insert on public.meetings;
+create policy meet_insert on public.meetings for insert to authenticated
+  with check (case when event_id is null then public.has_perm('manage_meetings') else public.can_event(event_id, 'meetings') end);
+
+-- zespół: osoby z rolą "team" widzą zgłoszenia i decydują o kadrze
+drop policy if exists evm_read on public.event_members;
+drop policy if exists evm_update on public.event_members;
+drop policy if exists evm_delete on public.event_members;
+create policy evm_read on public.event_members for select to authenticated using (
+  user_id = auth.uid() or public.can_event(event_id, 'team') or (status = 'accepted' and public.is_active_member())
+);
+create policy evm_update on public.event_members for update to authenticated
+  using (user_id = auth.uid() or public.can_event(event_id, 'team'))
+  with check (user_id = auth.uid() or public.can_event(event_id, 'team'));
+create policy evm_delete on public.event_members for delete to authenticated
+  using (user_id = auth.uid() or public.can_event(event_id, 'team'));
+
+-- ogłoszenia wydarzenia: osoby z rolą "post" publikują bez akceptacji i akceptują wpisy
+drop policy if exists evann_read on public.event_announcements;
+drop policy if exists evann_update on public.event_announcements;
+drop policy if exists evann_delete on public.event_announcements;
+create policy evann_read on public.event_announcements for select to authenticated using (
+  public.is_event_member(event_id) and (status = 'published' or author_id = auth.uid() or public.can_event(event_id, 'post'))
+);
+create policy evann_update on public.event_announcements for update to authenticated
+  using (public.can_event(event_id, 'post') or (author_id = auth.uid() and status = 'pending'))
+  with check (public.can_event(event_id, 'post') or author_id = auth.uid());
+create policy evann_delete on public.event_announcements for delete to authenticated
+  using (public.can_event(event_id, 'post') or author_id = auth.uid());
+
+create or replace function public.event_members_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_open boolean;
+  v_name text;
+begin
+  select recruitment_open, name into v_open, v_name from public.events where id = coalesce(new.event_id, old.event_id);
+
+  if auth.uid() is null then
+    return coalesce(new, old);
+  end if;
+
+  if tg_op = 'DELETE' then
+    if old.user_id = auth.uid() then return old; end if;                       -- rezygnacja / wycofanie zgłoszenia
+    if old.role = 'coordinator' and not public.is_chair() then
+      raise exception 'Koordynatora głównego może usunąć tylko przewodniczący komisji';
+    end if;
+    if old.role = 'staff' and not public.is_event_admin(old.event_id) then
+      raise exception 'Członków sztabu usuwa koordynator główny';
+    end if;
+    if not public.can_event(old.event_id, 'team') then raise exception 'Brak uprawnień'; end if;
+    return old;
+  end if;
+
+  if not exists (select 1 from public.profiles where id = new.user_id and role in ('member', 'board', 'chair', 'admin')) then
+    raise exception 'Do wydarzenia można dodać tylko aktywnych członków komisji';
+  end if;
+
+  if tg_op = 'INSERT' then
+    new.created_at := now();
+    if new.user_id = auth.uid() and not public.can_event(new.event_id, 'team') then
+      -- zgłoszenie się do wydarzenia
+      if not coalesce(v_open, false) then raise exception 'Rekrutacja do tego wydarzenia jest zamknięta'; end if;
+      if new.role = 'coordinator' then new.role := 'staff'; end if;
+      new.status := 'applied';
+      new.decided_by := null;
+      new.decided_at := null;
+      return new;
+    end if;
+    -- dodanie kogoś przez zespół wydarzenia
+    if new.role = 'coordinator' and not public.is_chair() then
+      raise exception 'Koordynatora głównego wyznacza przewodniczący komisji';
+    end if;
+    if new.role = 'staff' and not public.is_event_admin(new.event_id) then
+      raise exception 'Do sztabu dodaje koordynator główny';
+    end if;
+    if not public.can_event(new.event_id, 'team') then
+      raise exception 'Brak uprawnień do dodawania osób do wydarzenia';
+    end if;
+    if new.status <> 'applied' then
+      new.decided_by := auth.uid();
+      new.decided_at := now();
+    end if;
+    return new;
+  end if;
+
+  -- UPDATE
+  new.event_id := old.event_id;
+  new.user_id := old.user_id;
+  new.created_at := old.created_at;
+  if new.user_id = auth.uid() and not public.can_event(new.event_id, 'team') then
+    -- zgłaszający może tylko poprawić notatkę oczekującego zgłoszenia
+    if old.status <> 'applied' then raise exception 'Brak uprawnień'; end if;
+    new.role := old.role;
+    new.status := old.status;
+    return new;
+  end if;
+  if (new.role = 'coordinator' or old.role = 'coordinator') and new.role is distinct from old.role and not public.is_chair() then
+    raise exception 'Koordynatora głównego wyznacza przewodniczący komisji';
+  end if;
+  -- o sztabie decyduje koordynator (sztab może przyjąć zgłoszenie do sztabu jako kadrę)
+  if (new.role = 'staff' or (old.role = 'staff' and old.status = 'accepted')) and not public.is_event_admin(new.event_id) then
+    raise exception 'O sztabie decyduje koordynator główny';
+  end if;
+  if not public.can_event(new.event_id, 'team') then raise exception 'Brak uprawnień'; end if;
+  if new.status is distinct from old.status or new.role is distinct from old.role then
+    new.decided_by := auth.uid();
+    new.decided_at := now();
+  end if;
+  return new;
+end $$;
+
+create or replace function public.event_announcements_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'INSERT' then
+    new.author_id := auth.uid();
+    new.created_at := now();
+    if public.can_event(new.event_id, 'post') then
+      new.status := 'published';
+      new.reviewed_by := auth.uid();
+      new.reviewed_at := now();
+    else
+      new.status := 'pending';
+      new.pinned := false;
+      new.notify := false;
+      new.reviewed_by := null;
+      new.reviewed_at := null;
+    end if;
+    return new;
+  end if;
+  new.event_id := old.event_id;
+  new.author_id := old.author_id;
+  new.created_at := old.created_at;
+  if auth.uid() is not null and not public.can_event(old.event_id, 'post') then
+    new.status := old.status;
+    new.pinned := old.pinned;
+    new.notify := old.notify;
+    new.reviewed_by := old.reviewed_by;
+    new.reviewed_at := old.reviewed_at;
+  elsif new.status is distinct from old.status then
+    new.reviewed_by := auth.uid();
+    new.reviewed_at := now();
+  end if;
+  return new;
+end $$;

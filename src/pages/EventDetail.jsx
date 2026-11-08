@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, CalendarDays, MapPin, Megaphone, Users, Settings, Plus, Check, X, Pin, PinOff, Trash2, Pencil, Clock, Info, UserPlus,
-  LogOut, Download, CalendarClock, Mail, Phone, Lock, Unlock, Flag,
+  LogOut, Download, CalendarClock, Mail, Phone, Lock, Unlock, Flag, Tags,
 } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
@@ -22,12 +22,14 @@ export default function EventDetail() {
   const [members, setMembers] = useState([]);
   const [tab, setTab] = useState('wazne');
   const [apply, setApply] = useState(false);
+  const [roleData, setRoleData] = useState({ roles: [], assignments: [] });
 
   const load = useCallback(async () => {
     try {
-      const [e, m] = await Promise.all([api.getEvent(id), api.listEventMembers(id)]);
+      const [e, m, rd] = await Promise.all([api.getEvent(id), api.listEventMembers(id), api.listEventRoles(id).catch(() => null)]);
       setEvent(e);
       setMembers(m);
+      setRoleData(rd || { roles: [], assignments: [] });
     } catch (err) {
       toast.error(err);
       setEvent(null);
@@ -38,7 +40,7 @@ export default function EventDetail() {
   }, [load]);
 
   const mine = members.find((m) => m.user_id === profile.id);
-  const ep = eventPerms(perms, mine);
+  const ep = eventPerms(perms, mine, roleData, profile.id);
   const accepted = members.filter((m) => m.status === 'accepted');
 
   useEffect(() => {
@@ -59,6 +61,7 @@ export default function EventDetail() {
     ep.member && ['wazne', Megaphone, 'Ważne'],
     ['zespol', Users, 'Zespół'],
     ep.member && ['spotkania', CalendarDays, 'Spotkania'],
+    ep.admin && ['role', Tags, 'Role'],
     ep.admin && ['ustawienia', Settings, 'Ustawienia'],
   ].filter(Boolean);
   const pendingApps = members.filter((m) => m.status === 'applied').length;
@@ -74,6 +77,11 @@ export default function EventDetail() {
         <div className="row row-wrap" style={{ gap: 6, position: 'relative', marginBottom: 10 }}>
           {ep.role && <span className="badge badge-event">{EVENT_ROLE_LABELS[ep.role]}</span>}
           {!ep.role && ep.admin && <span className="badge badge-event">Pełne uprawnienia (przewodniczący)</span>}
+          {ep.myRoles.map((r) => (
+            <span key={r.id} className="badge badge-event">
+              {r.name}
+            </span>
+          ))}
           {mine?.status === 'applied' && <span className="badge badge-event">Twoje zgłoszenie czeka na decyzję</span>}
           {event.status === 'finished' && <span className="badge badge-event">Zakończone</span>}
         </div>
@@ -129,13 +137,14 @@ export default function EventDetail() {
         {tabs.map(([key, Icon, label]) => (
           <button key={key} className={`tab ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>
             <Icon size={16} /> {label}
-            {key === 'zespol' && ep.staff && pendingApps > 0 && <span className="count">{pendingApps}</span>}
+            {key === 'zespol' && ep.team && pendingApps > 0 && <span className="count">{pendingApps}</span>}
           </button>
         ))}
       </div>
 
       {tab === 'wazne' && ep.member && <EventAnnouncements event={event} ep={ep} />}
-      {tab === 'zespol' && <Team event={event} members={members} ep={ep} reload={load} />}
+      {tab === 'zespol' && <Team event={event} members={members} ep={ep} reload={load} roleData={roleData} />}
+      {tab === 'role' && ep.admin && <EventRoles event={event} members={members} roleData={roleData} reload={load} />}
       {tab === 'spotkania' && ep.member && <EventMeetings event={event} ep={ep} />}
       {tab === 'ustawienia' && ep.admin && <EventSettings event={event} reload={load} />}
 
@@ -268,13 +277,13 @@ function EventAnnouncements({ event, ep }) {
     <>
       <div className="row" style={{ marginBottom: 14 }}>
         <p className="small muted" style={{ flex: 1 }}>
-          {ep.staff ? 'Publikujesz bez akceptacji. Wpisy kadry czekają na zatwierdzenie sztabu.' : 'Twoje wpisy pojawią się po akceptacji sztabu.'}
+          {ep.post ? 'Publikujesz bez akceptacji. Wpisy pozostałych osób czekają na Twoją akceptację.' : 'Twoje wpisy pojawią się po akceptacji sztabu.'}
         </p>
         <button className="btn btn-primary" onClick={() => setComposer({})}>
           <Plus size={18} /> <span className="hide-mobile">Nowe ogłoszenie</span>
         </button>
       </div>
-      {ep.staff && pending.length > 0 && (
+      {ep.post && pending.length > 0 && (
         <div className="alert alert-warning" style={{ marginBottom: 14 }}>
           <Clock size={18} /> {pending.length} {pending.length === 1 ? 'wpis czeka' : 'wpisy czekają'} na akceptację sztabu.
         </div>
@@ -314,11 +323,11 @@ function EventAnnouncements({ event, ep }) {
                 <Linkify text={a.body} />
               </div>
               {a.poll && (
-                <AvailabilityPoll poll={a.poll} me={profile} canManage={ep.staff || a.author_id === profile.id} onDeleted={load} />
+                <AvailabilityPoll poll={a.poll} me={profile} canManage={ep.post || a.author_id === profile.id} onDeleted={load} />
               )}
-              {(ep.staff || a.author_id === profile.id) && (
+              {(ep.post || a.author_id === profile.id) && (
                 <div className="ann-actions">
-                  {ep.staff && a.status === 'pending' && (
+                  {ep.post && a.status === 'pending' && (
                     <>
                       <button className="btn btn-success btn-sm" onClick={() => act(() => api.updateEventAnnouncement(a.id, { status: 'published' }), 'Opublikowano')}>
                         <Check size={16} /> Akceptuj
@@ -328,12 +337,12 @@ function EventAnnouncements({ event, ep }) {
                       </button>
                     </>
                   )}
-                  {ep.staff && a.status === 'published' && (
+                  {ep.post && a.status === 'published' && (
                     <button className="btn btn-ghost btn-sm" onClick={() => act(() => api.updateEventAnnouncement(a.id, { pinned: !a.pinned }))}>
                       {a.pinned ? <PinOff size={16} /> : <Pin size={16} />} {a.pinned ? 'Odepnij' : 'Przypnij'}
                     </button>
                   )}
-                  {(ep.staff || a.status === 'pending') && (
+                  {(ep.post || a.status === 'pending') && (
                     <button className="btn btn-ghost btn-sm" onClick={() => setComposer(a)}>
                       <Pencil size={16} /> Edytuj
                     </button>
@@ -356,8 +365,8 @@ function EventAnnouncements({ event, ep }) {
       {composer && (
         <AnnouncementComposer
           initial={composer.id ? composer : null}
-          canNotify={ep.staff}
-          direct={ep.staff}
+          canNotify={ep.post}
+          direct={ep.post}
           onClose={() => setComposer(null)}
           onSubmit={async ({ title, body, notify, poll }) => {
             if (composer.id) {
@@ -460,12 +469,22 @@ export function AnnouncementComposer({ initial, canNotify, direct, onClose, onSu
 // =====================================================================
 //  Zespół
 // =====================================================================
-function Team({ event, members, ep, reload }) {
+function Team({ event, members, ep, reload, roleData }) {
   const { profile, perms } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const [adding, setAdding] = useState(false);
   const apps = members.filter((m) => m.status === 'applied');
+  const [priv, setPriv] = useState({});
+  useEffect(() => {
+    // e-mail i telefon widzi tylko zarząd komisji
+    if (perms.board) api.listPrivate().then(setPriv).catch(() => {});
+  }, [perms.board]);
+  const rolesOf = (uid) =>
+    roleData.assignments
+      .filter((a) => a.user_id === uid && (!a.expires_at || new Date(a.expires_at) > new Date()))
+      .map((a) => roleData.roles.find((r) => r.id === a.role_id))
+      .filter(Boolean);
   const by = (role) => members.filter((m) => m.status === 'accepted' && m.role === role);
 
   const act = async (fn, msg) => {
@@ -479,16 +498,23 @@ function Team({ event, members, ep, reload }) {
   };
 
   const exportCsv = () => {
-    const rows = [['Imię i nazwisko', 'E-mail', 'Telefon', 'Rola w wydarzeniu']];
+    const rows = [['Imię i nazwisko', 'Rola w wydarzeniu', 'Role dodatkowe', ...(perms.board ? ['E-mail', 'Telefon'] : [])]];
     members
       .filter((m) => m.status === 'accepted')
-      .forEach((m) => rows.push([m.profile?.full_name, m.profile?.email, m.profile?.phone || '', EVENT_ROLE_LABELS[m.role]]));
+      .forEach((m) =>
+        rows.push([
+          m.profile?.full_name,
+          EVENT_ROLE_LABELS[m.role],
+          rolesOf(m.user_id).map((r) => r.name).join(', '),
+          ...(perms.board ? [priv[m.user_id]?.email || '', priv[m.user_id]?.phone || ''] : []),
+        ])
+      );
     downloadCsv(`zespol-${event.name.replace(/\s+/g, '-').toLowerCase()}.csv`, rows);
   };
 
   const Person = ({ m }) => {
     const canChangeRole = ep.admin && m.role !== 'coordinator';
-    const canRemove = m.user_id !== profile.id && (m.role === 'coordinator' ? perms.chair : m.role === 'staff' ? ep.admin : ep.staff);
+    const canRemove = m.user_id !== profile.id && (m.role === 'coordinator' ? perms.chair : m.role === 'staff' ? ep.admin : ep.team);
     return (
       <div className="list-item" style={{ flexWrap: 'wrap', gap: 10 }}>
         <Link to={`/u/${m.user_id}`}>
@@ -498,16 +524,24 @@ function Team({ event, members, ep, reload }) {
           <Link to={`/u/${m.user_id}`} style={{ color: 'inherit' }}>
             <b className="small">{m.profile?.full_name}</b>
           </Link>
-          {ep.member && (
-            <div className="tiny muted row row-wrap" style={{ gap: '0 10px' }}>
-              {m.profile?.email && (
-                <a href={`mailto:${m.profile.email}`} className="row" style={{ gap: 3 }}>
-                  <Mail size={12} /> {m.profile.email}
-                </a>
-              )}
-              {m.profile?.phone && (m.profile.show_phone || ep.staff) && (
-                <a href={`tel:${m.profile.phone}`} className="row" style={{ gap: 3 }}>
-                  <Phone size={12} /> {m.profile.phone}
+          {m.profile?.headline && <div className="tiny muted truncate">{m.profile.headline}</div>}
+          {rolesOf(m.user_id).length > 0 && (
+            <div className="row row-wrap" style={{ gap: 4, marginTop: 3 }}>
+              {rolesOf(m.user_id).map((r) => (
+                <span key={r.id} className="badge" style={{ height: 20, fontSize: 11, background: r.color + '22', color: r.color }}>
+                  {r.name}
+                </span>
+              ))}
+            </div>
+          )}
+          {perms.board && priv[m.user_id] && (
+            <div className="tiny muted row row-wrap" style={{ gap: '0 10px' }} title="Widoczne tylko dla zarządu">
+              <a href={`mailto:${priv[m.user_id].email}`} className="row" style={{ gap: 3 }}>
+                <Mail size={12} /> {priv[m.user_id].email}
+              </a>
+              {priv[m.user_id].phone && (
+                <a href={`tel:${priv[m.user_id].phone}`} className="row" style={{ gap: 3 }}>
+                  <Phone size={12} /> {priv[m.user_id].phone}
                 </a>
               )}
             </div>
@@ -552,22 +586,22 @@ function Team({ event, members, ep, reload }) {
 
   return (
     <>
-      {(ep.staff || ep.member) && (
+      {(ep.team || ep.member) && (
         <div className="row row-wrap" style={{ marginBottom: 14 }}>
-          {ep.staff && (
+          {ep.team && (
             <button className="btn btn-primary" onClick={() => setAdding(true)}>
               <UserPlus size={17} /> Dodaj osobę
             </button>
           )}
           {ep.member && (
             <button className="btn btn-ghost" onClick={exportCsv}>
-              <Download size={16} /> Lista kontaktów CSV
+              <Download size={16} /> Lista zespołu CSV
             </button>
           )}
         </div>
       )}
 
-      {ep.staff && apps.length > 0 && (
+      {ep.team && apps.length > 0 && (
         <div className="card" style={{ marginBottom: 14, borderColor: '#fde7c2' }}>
           <div className="card-head">
             <h3>Zgłoszenia do rozpatrzenia</h3>
@@ -693,9 +727,9 @@ function EventMeetings({ event, ep }) {
   const past = meetings.filter((m) => new Date(m.starts_at) < new Date(now.toDateString())).reverse();
   return (
     <>
-      {ep.staff && (
+      {ep.meetings && (
         <div className="row" style={{ marginBottom: 14 }}>
-          <p className="small muted" style={{ flex: 1 }}>Sztab sprawdza obecność na spotkaniach wydarzenia (także skanerem QR).</p>
+          <p className="small muted" style={{ flex: 1 }}>Obecność na spotkaniach wydarzenia sprawdza sztab i osoby z rolą „obecność” (także skanerem QR).</p>
           <button className="btn btn-primary" onClick={() => setForm(true)}>
             <Plus size={18} /> Nowe spotkanie
           </button>
@@ -809,5 +843,241 @@ function EventSettings({ event, reload }) {
       )}
       {edit && <EventForm initial={event} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); reload(); }} />}
     </div>
+  );
+}
+
+// =====================================================================
+//  Role wydarzenia (tworzy koordynator główny – jak role tymczasowe w komisji)
+// =====================================================================
+const EV_COLORS = ['#45B0E5', '#2394D0', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#64748B'];
+const EV_PERMS = [
+  ['can_post', 'Publikuje w „Ważne” wydarzenia bez akceptacji i akceptuje wpisy innych'],
+  ['can_manage_team', 'Rekrutacja: przyjmuje, dodaje i usuwa kadrę'],
+  ['can_manage_meetings', 'Tworzy i edytuje spotkania wydarzenia'],
+  ['can_scan', 'Sprawdza obecność na spotkaniach wydarzenia (skaner QR)'],
+];
+
+function EventRoles({ event, members, roleData, reload }) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [edit, setEdit] = useState(null);
+  const [grant, setGrant] = useState(null);
+  const team = members.filter((m) => m.status === 'accepted');
+  const name = (uid) => team.find((m) => m.user_id === uid)?.profile;
+  const act = async (fn, msg) => {
+    try {
+      await fn();
+      if (msg) toast.success(msg);
+      reload();
+    } catch (e) {
+      toast.error(e);
+    }
+  };
+  return (
+    <>
+      <div className="row" style={{ marginBottom: 14 }}>
+        <p className="small muted" style={{ flex: 1 }}>
+          Twórz własne funkcje w zespole (np. „Koordynator ds. kadry”, „Odpowiedzialny za scenę”) i sam decyduj, co mogą.
+        </p>
+        <button className="btn btn-primary" onClick={() => setEdit({ event_id: event.id, name: '', color: EV_COLORS[0], description: '', can_post: false, can_manage_team: false, can_manage_meetings: false, can_scan: false })}>
+          <Plus size={17} /> <span className="hide-mobile">Nowa rola</span>
+        </button>
+      </div>
+      {roleData.roles.length === 0 ? (
+        <div className="card">
+          <Empty icon={Tags} title="Brak ról w wydarzeniu">
+            Utwórz pierwszą rolę i przypisz ją osobom z zespołu.
+          </Empty>
+        </div>
+      ) : (
+        <div className="stack">
+          {roleData.roles.map((r) => {
+            const asg = roleData.assignments.filter((a) => a.role_id === r.id);
+            return (
+              <div key={r.id} className="card card-pad" style={{ borderLeft: `4px solid ${r.color}` }}>
+                <div className="row">
+                  <h3 style={{ flex: 1 }}>{r.name}</h3>
+                  <button className="btn btn-ghost btn-icon btn-sm" style={{ width: 32, height: 32 }} onClick={() => setEdit(r)} aria-label="Edytuj">
+                    <Pencil size={15} />
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-icon btn-sm"
+                    style={{ width: 32, height: 32 }}
+                    aria-label="Usuń"
+                    onClick={async () => {
+                      if (await confirm({ message: `Usunąć rolę „${r.name}”? Zostanie odebrana wszystkim.`, danger: true, confirmText: 'Usuń' }))
+                        act(() => api.deleteEventRole(r.id), 'Usunięto rolę');
+                    }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+                {r.description && <p className="small muted">{r.description}</p>}
+                <div className="row row-wrap" style={{ gap: 6, marginTop: 8 }}>
+                  {EV_PERMS.filter(([k]) => r[k]).map(([k, l]) => (
+                    <span key={k} className="badge badge-board">{l.split(':')[0].split(' (')[0]}</span>
+                  ))}
+                  {!EV_PERMS.some(([k]) => r[k]) && <span className="badge">Funkcja bez dodatkowych uprawnień</span>}
+                </div>
+                <div className="row row-wrap" style={{ gap: 6, marginTop: 10 }}>
+                  {asg.map((a) => (
+                    <span key={a.id} className="badge" style={{ background: r.color + '1f', color: r.color, height: 28 }}>
+                      <Avatar profile={name(a.user_id)} size={18} /> {name(a.user_id)?.full_name || 'osoba spoza zespołu'}
+                      {a.expires_at && <span style={{ opacity: 0.75 }}> · do {new Date(a.expires_at).toLocaleDateString('pl-PL')}</span>}
+                      <button className="tag-x" aria-label="Odbierz rolę" onClick={() => act(() => api.revokeEventRole(a.id))}>
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))}
+                  <button className="btn btn-ghost btn-sm" onClick={() => setGrant(r)}>
+                    <UserPlus size={15} /> Przypisz
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {edit && (
+        <EventRoleModal
+          role={edit}
+          onClose={() => setEdit(null)}
+          onSave={async (r) => {
+            await api.saveEventRole(r);
+            setEdit(null);
+            toast.success('Zapisano rolę');
+            reload();
+          }}
+        />
+      )}
+      {grant && (
+        <EventRoleGrant
+          role={grant}
+          team={team.filter((m) => !roleData.assignments.some((a) => a.role_id === grant.id && a.user_id === m.user_id))}
+          onClose={() => setGrant(null)}
+          onSave={async (userId, until) => {
+            await api.assignEventRole(event.id, grant.id, userId, until);
+            setGrant(null);
+            toast.success('Przypisano rolę');
+            reload();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function EventRoleModal({ role, onClose, onSave }) {
+  const toast = useToast();
+  const [r, setR] = useState(role);
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setR((x) => ({ ...x, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+  return (
+    <Modal
+      title={role.id ? 'Edytuj rolę' : 'Nowa rola w wydarzeniu'}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>
+            Anuluj
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={busy || !r.name.trim()}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const { id, event_id, name, color, description, can_post, can_manage_team, can_manage_meetings, can_scan } = r;
+                await onSave({ id, event_id, name: name.trim(), color, description: description.trim(), can_post, can_manage_team, can_manage_meetings, can_scan });
+              } catch (e) {
+                toast.error(e);
+                setBusy(false);
+              }
+            }}
+          >
+            Zapisz
+          </button>
+        </>
+      }
+    >
+      <div className="stack">
+        <div className="field">
+          <label>Nazwa funkcji</label>
+          <input className="input" maxLength={60} value={r.name} onChange={set('name')} placeholder="np. Koordynator ds. kadry" />
+        </div>
+        <div className="field">
+          <label>Opis (od czego jest)</label>
+          <input className="input" value={r.description} onChange={set('description')} placeholder="np. rekrutacja i grafik wolontariuszy" />
+        </div>
+        <div className="field">
+          <label>Kolor</label>
+          <div className="swatches">
+            {EV_COLORS.map((c) => (
+              <button type="button" key={c} className={`swatch ${r.color === c ? 'on' : ''}`} style={{ background: c }} onClick={() => setR((x) => ({ ...x, color: c }))} aria-label={c} />
+            ))}
+          </div>
+        </div>
+        <div className="label">Uprawnienia w wydarzeniu</div>
+        {EV_PERMS.map(([k, l]) => (
+          <label key={k} className="check">
+            <input type="checkbox" checked={!!r[k]} onChange={set(k)} />
+            <span>{l}</span>
+          </label>
+        ))}
+        <p className="hint">Rolę możesz nadać tylko osobom z zespołu wydarzenia. Po wygaśnięciu terminu uprawnienia znikają automatycznie.</p>
+      </div>
+    </Modal>
+  );
+}
+
+function EventRoleGrant({ role, team, onClose, onSave }) {
+  const toast = useToast();
+  const [userId, setUserId] = useState('');
+  const [until, setUntil] = useState('');
+  return (
+    <Modal
+      title={`Przypisz: ${role.name}`}
+      onClose={onClose}
+      width={440}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>
+            Anuluj
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={!userId}
+            onClick={async () => {
+              try {
+                await onSave(userId, until ? new Date(until + 'T23:59:59').toISOString() : null);
+              } catch (e) {
+                toast.error(e);
+              }
+            }}
+          >
+            Przypisz
+          </button>
+        </>
+      }
+    >
+      <div className="stack">
+        <div className="field">
+          <label>Osoba z zespołu</label>
+          <select className="select" value={userId} onChange={(e) => setUserId(e.target.value)}>
+            <option value="">— wybierz —</option>
+            {team.map((m) => (
+              <option key={m.user_id} value={m.user_id}>
+                {m.profile?.full_name} ({EVENT_ROLE_LABELS[m.role]})
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>Ważna do (opcjonalnie)</label>
+          <input className="input" type="date" value={until} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setUntil(e.target.value)} />
+          <span className="hint">Puste = do końca wydarzenia / odebrania.</span>
+        </div>
+      </div>
+    </Modal>
   );
 }

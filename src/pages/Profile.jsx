@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import {
-  ArrowLeft, Pencil, Mail, Phone, AtSign, Globe, GraduationCap, Building2, CalendarCheck, QrCode, LogOut, Share2,
+  ArrowLeft, Pencil, Mail, Phone, AtSign, Globe, GraduationCap, Building2, CalendarCheck, QrCode, LogOut, Share2, Bug,
+  MessageSquareWarning, Lock, Link2, Hash, IdCard, Cake, LifeBuoy, StickyNote, Sparkles, Info,
 } from 'lucide-react';
 import { api } from '../api';
 import { useAuth } from '../auth';
@@ -10,22 +11,29 @@ import { Avatar, CustomRoleBadges, Empty, RoleBadge, Spinner, gear, Linkify, use
 import { profileUrl } from '../lib/qr';
 import { fmtDate } from '../lib/format';
 import FeedbackModal from '../components/FeedbackModal';
-import { Bug, MessageSquareWarning } from 'lucide-react';
+import { coverBg } from './EditProfile';
+import { Feed } from './Community';
 
 export default function Profile() {
   const { id } = useParams();
   const { profile: me, perms } = useAuth();
   const toast = useToast();
   const [p, setP] = useState(undefined);
+  const [priv, setPriv] = useState(null);
   const [stats, setStats] = useState(null);
   const [qr, setQr] = useState('');
+  const [tab, setTab] = useState('posts');
   const [feedback, setFeedback] = useState(false);
   const isMe = id === me.id;
 
   useEffect(() => {
     setP(undefined);
+    setPriv(null);
+    setTab('posts');
     (isMe ? api.getMyProfile() : api.getProfile(id)).then(setP).catch(() => setP(null));
-  }, [id, isMe]);
+    if (isMe) api.getMyPrivate().then(setPriv).catch(() => {});
+    else if (perms.board) api.listPrivate().then((m) => setPriv(m[id] || null)).catch(() => {});
+  }, [id, isMe, perms.board]);
 
   useEffect(() => {
     if (!p) return;
@@ -33,7 +41,7 @@ export default function Profile() {
     if (isMe || perms.scan) {
       Promise.all([api.listMeetings(), isMe ? api.listMyAttendance() : api.listAllAttendance()])
         .then(([meetings, att]) => {
-          const past = meetings.filter((m) => new Date(m.starts_at) < new Date());
+          const past = meetings.filter((m) => new Date(m.starts_at) < new Date() && !m.event_id);
           const present = past.filter((m) => att.some((a) => a.meeting_id === m.id && a.user_id === p.id && a.present)).length;
           setStats({ past: past.length, present });
         })
@@ -51,9 +59,6 @@ export default function Profile() {
       </div>
     );
 
-  const showEmail = isMe || p.show_email || perms.board;
-  const showPhone = p.phone && (isMe || p.show_phone || perms.board);
-
   const share = async () => {
     const url = profileUrl(p.id);
     try {
@@ -66,50 +71,111 @@ export default function Profile() {
       /* anulowano */
     }
   };
+  const hasInfo = p.faculty || p.study_field || p.study_year || p.instagram || p.facebook || p.website || p.approved_at || stats;
 
   return (
-    <>
+    <div style={{ maxWidth: 760, margin: '0 auto' }}>
       {!isMe && (
         <Link to="/czlonkowie" className="row small muted" style={{ marginBottom: 14, gap: 4 }}>
           <ArrowLeft size={16} /> Członkowie
         </Link>
       )}
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr)', gap: 18 }}>
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <div className="profile-cover">
-            <img src={gear} alt="" />
-          </div>
-          <div className="profile-main">
-            <div className="row" style={{ alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
-              <Avatar profile={p} size={104} />
-              <div className="spacer" />
-              <div className="row" style={{ paddingBottom: 6 }}>
-                <button className="btn btn-ghost btn-sm" onClick={share}>
-                  <Share2 size={15} /> Udostępnij
-                </button>
-                {(isMe || perms.board) && (
-                  <Link to={isMe ? '/ja/edytuj' : `/ja/edytuj?u=${p.id}`} className="btn btn-secondary btn-sm">
-                    <Pencil size={15} /> Edytuj
-                  </Link>
-                )}
-              </div>
-            </div>
-            <h1 style={{ marginTop: 14 }}>{p.full_name}</h1>
-            <div className="row row-wrap" style={{ marginTop: 8, gap: 6 }}>
-              <RoleBadge role={p.role} />
-              <CustomRoleBadges profile={p} showExpiry={isMe || perms.board} />
-            </div>
-            {p.bio && (
-              <p className="pre" style={{ marginTop: 14, color: 'var(--navy-800)' }}>
-                <Linkify text={p.bio} />
-              </p>
-            )}
-          </div>
+      <div className="card" style={{ overflow: 'hidden', marginBottom: 16 }}>
+        <div className="profile-cover" style={{ background: coverBg(p.cover_color) }}>
+          <img src={gear} alt="" />
         </div>
+        <div className="profile-main">
+          <div className="row" style={{ alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}>
+            <Avatar profile={p} size={104} />
+            <div className="spacer" />
+            <div className="row" style={{ paddingBottom: 6 }}>
+              <button className="btn btn-ghost btn-sm" onClick={share}>
+                <Share2 size={15} /> <span className="hide-mobile">Udostępnij</span>
+              </button>
+              {(isMe || perms.board) && (
+                <Link to={isMe ? '/ja/edytuj' : `/ja/edytuj?u=${p.id}`} className="btn btn-secondary btn-sm">
+                  <Pencil size={15} /> {isMe ? 'Edytuj profil' : 'Edytuj'}
+                </Link>
+              )}
+            </div>
+          </div>
+          <h1 style={{ marginTop: 14 }}>{p.full_name}</h1>
+          {p.headline && <p className="muted" style={{ marginTop: 2 }}>{p.headline}</p>}
+          <div className="row row-wrap" style={{ marginTop: 8, gap: 6 }}>
+            <RoleBadge role={p.role} />
+            <CustomRoleBadges profile={p} showExpiry={isMe || perms.board} />
+          </div>
+          {p.bio && (
+            <p className="pre" style={{ marginTop: 14, color: 'var(--navy-800)' }}>
+              <Linkify text={p.bio} />
+            </p>
+          )}
+          {p.interests?.length > 0 && (
+            <div className="row row-wrap" style={{ gap: 6, marginTop: 12 }}>
+              {p.interests.map((t) => (
+                <span key={t} className="badge badge-board">
+                  <Hash size={11} />
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
+      {/* dane poufne – tylko właściciel i zarząd */}
+      {priv && (
+        <div className="card card-pad" style={{ marginBottom: 16, borderColor: 'var(--sky-200)', background: 'var(--sky-50)' }}>
+          <h3 className="row" style={{ gap: 8, marginBottom: 6 }}>
+            <Lock size={17} /> Dane poufne {isMe ? '(widzisz Ty i zarząd)' : '(widzi tylko zarząd)'}
+          </h3>
+          <div className="info-row">
+            <Mail size={18} /> <a href={`mailto:${priv.email}`}>{priv.email}</a>
+          </div>
+          {priv.phone && (
+            <div className="info-row">
+              <Phone size={18} /> <a href={`tel:${priv.phone}`}>{priv.phone}</a>
+            </div>
+          )}
+          {priv.student_id && (
+            <div className="info-row">
+              <IdCard size={18} /> Nr indeksu: {priv.student_id}
+            </div>
+          )}
+          {priv.birth_date && (
+            <div className="info-row">
+              <Cake size={18} /> {fmtDate(priv.birth_date)}
+            </div>
+          )}
+          {priv.emergency_contact && (
+            <div className="info-row">
+              <LifeBuoy size={18} /> Kontakt awaryjny: {priv.emergency_contact}
+            </div>
+          )}
+          {priv.info && (
+            <div className="info-row" style={{ alignItems: 'flex-start' }}>
+              <StickyNote size={18} /> <span className="pre">{priv.info}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="tabs" style={{ marginBottom: 14 }}>
+        <button className={`tab ${tab === 'posts' ? 'active' : ''}`} onClick={() => setTab('posts')}>
+          <Sparkles size={15} /> Posty
+        </button>
+        <button className={`tab ${tab === 'info' ? 'active' : ''}`} onClick={() => setTab('info')}>
+          <Info size={15} /> Informacje
+        </button>
+      </div>
+
+      {tab === 'posts' ? (
+        <Feed authorId={p.id} composer={isMe} />
+      ) : (
         <div className="grid grid-2">
           <div className="card card-pad">
             <h3 style={{ marginBottom: 6 }}>Informacje</h3>
+            {!hasInfo && <p className="small muted">{isMe ? 'Uzupełnij profil w „Edytuj profil”.' : 'Ta osoba nie udostępnia dodatkowych informacji.'}</p>}
             {p.faculty && (
               <div className="info-row">
                 <Building2 size={18} /> {p.faculty}
@@ -118,16 +184,6 @@ export default function Profile() {
             {(p.study_field || p.study_year) && (
               <div className="info-row">
                 <GraduationCap size={18} /> {[p.study_field, p.study_year].filter(Boolean).join(', ')}
-              </div>
-            )}
-            {showEmail && (
-              <div className="info-row">
-                <Mail size={18} /> <a href={`mailto:${p.email}`}>{p.email}</a>
-              </div>
-            )}
-            {showPhone && (
-              <div className="info-row">
-                <Phone size={18} /> <a href={`tel:${p.phone}`}>{p.phone}</a>
               </div>
             )}
             {p.instagram && (
@@ -146,6 +202,14 @@ export default function Profile() {
                 </a>
               </div>
             )}
+            {p.website && (
+              <div className="info-row">
+                <Link2 size={18} />
+                <a href={p.website.startsWith('http') ? p.website : `https://${p.website}`} target="_blank" rel="noopener noreferrer">
+                  {p.website.replace(/^https?:\/\//, '')}
+                </a>
+              </div>
+            )}
             {stats && (
               <div className="info-row">
                 <CalendarCheck size={18} /> Frekwencja: <b>{stats.past ? Math.round((stats.present / stats.past) * 100) : 0}%</b>
@@ -160,7 +224,6 @@ export default function Profile() {
               </div>
             )}
           </div>
-
           <div className="card qr-card">
             <h3>Wizytówka QR</h3>
             <p className="small muted" style={{ margin: '4px 0 14px' }}>
@@ -180,22 +243,25 @@ export default function Profile() {
             )}
           </div>
         </div>
+      )}
 
-        {isMe && (
-          <div className="stack hide-desktop" style={{ gap: 10 }}>
-            <Link to="/sprawy" className="btn btn-secondary btn-block">
-              <MessageSquareWarning size={17} /> Kulturkowe sprawy – zawiadom zarząd
-            </Link>
-            <button className="btn btn-ghost btn-block" onClick={() => setFeedback(true)}>
-              <Bug size={17} /> Zgłoś problem z aplikacją
-            </button>
-            <button className="btn btn-ghost btn-block" onClick={() => api.signOut()}>
-              <LogOut size={17} /> Wyloguj się
-            </button>
-          </div>
-        )}
-      </div>
+      {isMe && (
+        <div className="stack hide-desktop" style={{ gap: 10, marginTop: 18 }}>
+          <Link to="/moj-qr" className="btn btn-secondary btn-block">
+            <QrCode size={17} /> Mój kod obecności
+          </Link>
+          <Link to="/sprawy" className="btn btn-secondary btn-block">
+            <MessageSquareWarning size={17} /> Kulturkowe sprawy – zawiadom zarząd
+          </Link>
+          <button className="btn btn-ghost btn-block" onClick={() => setFeedback(true)}>
+            <Bug size={17} /> Zgłoś problem z aplikacją
+          </button>
+          <button className="btn btn-ghost btn-block" onClick={() => api.signOut()}>
+            <LogOut size={17} /> Wyloguj się
+          </button>
+        </div>
+      )}
       {feedback && <FeedbackModal onClose={() => setFeedback(false)} />}
-    </>
+    </div>
   );
 }

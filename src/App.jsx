@@ -18,9 +18,11 @@ import NotFound from './pages/NotFound';
 import Events from './pages/Events';
 import EventDetail from './pages/EventDetail';
 import Cases from './pages/Cases';
+import PrivateInfoOnboarding, { privateComplete } from './pages/PrivateInfo';
+import Community from './pages/Community';
 
 function Gate() {
-  const { loading, session, profile, perms, recovery } = useAuth();
+  const { loading, session, profile, perms, recovery, privateInfo } = useAuth();
   if (loading) return <Spinner center />;
 
   if (recovery && session) return <NewPassword />;
@@ -35,7 +37,10 @@ function Gate() {
     );
   }
 
-  if (!profile) return <Spinner center />;
+  if (!profile || privateInfo === undefined) return <Spinner center />;
+
+  // najpierw dane poufne dla zarządu (telefon, nr indeksu)
+  if (!privateComplete(privateInfo) && !['rejected', 'alumni'].includes(profile.role)) return <PrivateInfoOnboarding />;
 
   if (!perms.active) {
     return (
@@ -58,6 +63,7 @@ function Gate() {
         <Route path="wydarzenia" element={<Events />} />
         <Route path="wydarzenia/:id" element={<EventDetail />} />
         <Route path="sprawy" element={<Cases />} />
+        <Route path="spolecznosc" element={<Community />} />
         <Route path="u/:id" element={<Profile />} />
         <Route path="ja/edytuj" element={<EditProfile />} />
         <Route path="moj-qr" element={<MyQr />} />

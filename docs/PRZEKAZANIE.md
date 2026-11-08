@@ -7,6 +7,17 @@
 - Rolę administratora istniejącemu kontu nadasz plikiem `supabase/nadaj-admina.sql` (Supabase → SQL Editor).
 - Administrator **nie jest liczony jako członek**: nie ma go na liście członków, w listach obecności ani w statystykach.
 
+## Prywatność profili i dane poufne
+
+- **E-mail, telefon, nr indeksu, data urodzenia, kontakt awaryjny i informacje dla zarządu** widzi wyłącznie zarząd (zarząd, przewodniczący, administrator) oraz sam właściciel. W bazie są w osobnej tabeli `profile_private`, a e-mail w profilu nie jest dostępny dla zwykłych zapytań.
+- Po pierwszym logowaniu każdy musi uzupełnić telefon i numer indeksu (ekran „Uzupełnij dane dla zarządu”).
+- Każdy sam decyduje, czy inni członkowie widzą sekcje profilu: studia, „o mnie”, zainteresowania, social media (przełączniki w „Edytuj profil”). Ukryte pola widzi tylko zarząd – filtruje je baza (widok `member_profiles`), nie tylko aplikacja.
+
+## Społeczność
+
+- **Tablica**: posty (tekst + zdjęcie), polubienia, komentarze. **Story** znikają po 24 h (autor widzi, kto oglądał). Wygasłe story i ich zdjęcia sprząta skrypt Google.
+- Moderacja: zarząd może usuwać posty, komentarze i story. Autor posta może usuwać komentarze pod swoim postem.
+
 ## Kulturkowe sprawy (zawiadomienia)
 
 - Każdy aktywny członek może wysłać zawiadomienie (kategoria + opis) **jawnie** albo **anonimowo**. Listę spraw widzi tylko zarząd, przewodniczący i administrator.
@@ -22,6 +33,8 @@
 | Koordynator główny | przewodniczący (tylko w tym wydarzeniu) | wszystko w wydarzeniu: dane, rekrutacja, sztab, kadra, ogłoszenia, spotkania, usuwanie spotkań |
 | Sztab | zarząd wydarzenia | przyjmuje kadrę, publikuje bez akceptacji, akceptuje wpisy kadry, tworzy spotkania i sprawdza obecność |
 | Kadra | członkowie | widzi ogłoszenia i spotkania wydarzenia, wpisy wymagają akceptacji sztabu, ankiety dostępności |
+
+- **Własne role w wydarzeniu**: koordynator główny (lub przewodniczący) tworzy w zakładce „Role” dowolne funkcje, np. „Koordynator ds. kadry”, i wybiera ich uprawnienia: publikacja i akceptacja wpisów, rekrutacja kadry, spotkania, sprawdzanie obecności. Rolę nadaje osobom z zespołu, opcjonalnie do określonej daty.
 
 - Wydarzenia tworzy **przewodniczący lub administrator** i wyznacza koordynatora głównego (bez akceptacji zarządu).
 - Przewodniczący i administrator mają w każdym wydarzeniu pełne uprawnienia. **Zarząd komisji nie ma w wydarzeniach dodatkowych uprawnień** – jest traktowany jak członek.
